@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS otp_challenges;
+DROP TABLE IF EXISTS gamification;
+DROP TABLE IF EXISTS tracker_entries;
+DROP TABLE IF EXISTS lessons;
+DROP TABLE IF EXISTS subjects;
+DROP TABLE IF EXISTS coach_messages;
+DROP TABLE IF EXISTS coach_conversations;
+DROP TABLE IF EXISTS thought_likes;
+DROP TABLE IF EXISTS thoughts;
+DROP TABLE IF EXISTS user_interests;
+DROP TABLE IF EXISTS profiles;
+DROP TABLE IF EXISTS users;

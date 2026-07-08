@@ -1,0 +1,125 @@
+package prayer
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/tafakkur/backend/internal/gamify"
+	"github.com/tafakkur/backend/internal/tracker"
+	"github.com/tafakkur/backend/internal/user"
+)
+
+type Service struct {
+	users   user.Service
+	gamify  gamify.Service
+	tracker tracker.Service
+}
+
+func NewService(u user.Service, g gamify.Service, tr tracker.Service) *Service {
+	return &Service{users: u, gamify: g, tracker: tr}
+}
+
+type PrayerTimeDTO struct {
+	Name string `json:"name"`
+	Time string `json:"time"`
+}
+
+type NextPrayerDTO struct {
+	Name             string `json:"name"`
+	Time             string `json:"time"`
+	SecondsRemaining int64  `json:"seconds_remaining"`
+}
+
+type TimesResponse struct {
+	Date      string          `json:"date"`
+	Latitude  float64         `json:"latitude"`
+	Longitude float64         `json:"longitude"`
+	Method    string          `json:"method"`
+	Madhab    string          `json:"madhab"`
+	Times     []PrayerTimeDTO `json:"times"`
+	Next      NextPrayerDTO   `json:"next"`
+}
+
+// Times computes the day's prayer times. method/madhab fall back to the user's
+// saved profile settings when the query omits them.
+func (s *Service) Times(ctx context.Context, userID uuid.UUID, date time.Time, lat, lng float64, loc *time.Location, method, madhab string) (TimesResponse, error) {
+	if method == "" || madhab == "" {
+		if acc, err := s.users.GetAccount(ctx, userID); err == nil {
+			if method == "" {
+				method = acc.Profile.CalcMethod
+			}
+			if madhab == "" {
+				madhab = acc.Profile.Madhab
+			}
+		}
+	}
+	if madhab == "" {
+		madhab = "hanafi"
+	}
+	m, ok := MethodByName(method)
+	if !ok {
+		m, method = Methods["MWL"], "MWL"
+	}
+
+	factor := AsrShadowFactor(madhab)
+	today := Calculate(date, lat, lng, loc, m, factor)
+
+	ordered := []struct {
+		name string
+		t    time.Time
+	}{
+		{"fajr", today.Fajr},
+		{"dhuhr", today.Dhuhr},
+		{"asr", today.Asr},
+		{"maghrib", today.Maghrib},
+		{"isha", today.Isha},
+	}
+
+	resp := TimesResponse{
+		Date:      date.Format("2006-01-02"),
+		Latitude:  lat,
+		Longitude: lng,
+		Method:    method,
+		Madhab:    madhab,
+	}
+	resp.Times = []PrayerTimeDTO{
+		{"fajr", today.Fajr.Format(time.RFC3339)},
+		{"sunrise", today.Sunrise.Format(time.RFC3339)},
+		{"dhuhr", today.Dhuhr.Format(time.RFC3339)},
+		{"asr", today.Asr.Format(time.RFC3339)},
+		{"maghrib", today.Maghrib.Format(time.RFC3339)},
+		{"isha", today.Isha.Format(time.RFC3339)},
+	}
+
+	now := time.Now().In(loc)
+	for _, p := range ordered {
+		if p.t.After(now) {
+			resp.Next = NextPrayerDTO{
+				Name:             p.name,
+				Time:             p.t.Format(time.RFC3339),
+				SecondsRemaining: int64(p.t.Sub(now).Seconds()),
+			}
+			return resp, nil
+		}
+	}
+	// All of today's prayers have passed — next is tomorrow's Fajr.
+	tomorrow := Calculate(date.AddDate(0, 0, 1), lat, lng, loc, m, factor)
+	resp.Next = NextPrayerDTO{
+		Name:             "fajr",
+		Time:             tomorrow.Fajr.Format(time.RFC3339),
+		SecondsRemaining: int64(tomorrow.Fajr.Sub(now).Seconds()),
+	}
+	return resp, nil
+}
+
+// Track records that the user prayed a given prayer and awards XP.
+func (s *Service) Track(ctx context.Context, userID uuid.UUID, prayer string, date time.Time) (gamify.State, error) {
+	payload, _ := json.Marshal(map[string]string{"prayer": prayer})
+	if _, err := s.tracker.Create(ctx, userID, "prayer", payload, date); err != nil {
+		return gamify.State{}, err
+	}
+	return s.gamify.Award(ctx, userID, gamify.EventPrayerTracked)
+}

@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tafakkur
+      POSTGRES_PASSWORD: tafakkur
+      POSTGRES_DB: tafakkur
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tafakkur"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Creates the media bucket on startup so photo upload works out of the box.
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb -p local/tafakkur-media;
+      mc anonymous set download local/tafakkur-media;
+      exit 0;
+      "
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      ENV: dev
+      HTTP_PORT: "8080"
+      DATABASE_URL: postgres://tafakkur:tafakkur@postgres:5432/tafakkur?sslmode=disable
+      MIGRATIONS_DIR: /app/migrations
+      JWT_SECRET: dev-only-change-me
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      APPLE_BUNDLE_ID: ${APPLE_BUNDLE_ID:-}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: tafakkur-media
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_USE_PATH_STYLE: "true"
+      S3_PUBLIC_BASE: http://localhost:9000/tafakkur-media
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
+  miniodata:

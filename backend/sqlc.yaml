@@ -1,0 +1,18 @@
+# sqlc is configured for the typed-query path. The current repositories use pgx
+# directly (equivalent, and keeps the build free of a codegen step); run
+# `make sqlc` to generate typed queries into internal/db when you want them.
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema:
+      - "migrations/0001_init.up.sql"
+      - "migrations/0002_seed.up.sql"
+    queries: "queries"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
