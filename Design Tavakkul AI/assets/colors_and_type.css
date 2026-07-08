@@ -1,0 +1,257 @@
+/* =========================================================================
+   Zukko Dev — Colors & Type
+   Dark-first, developer-focused. Inspired by IDE neutrals + a confident
+   electric blue accent that reads as "code" without being playful.
+   ========================================================================= */
+
+/* ---------- Webfonts (Google Fonts) ---------------------------------------
+   Inter        — UI + body text. Modern grotesque, geometric, neutral.
+   Instrument Serif — display/marketing voice (rare, used for big numbers
+                       and editorial moments only).
+   JetBrains Mono — code, terminal, monospaced UI accents.
+   --------------------------------------------------------------------------
+   ⚠ FONT NOTE: We did not have the user's actual webfonts. These are the
+   nearest open-source matches. Replace with licensed/branded fonts when
+   available.
+   ------------------------------------------------------------------------ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ---------------------------------------------------------------------
+     COLOR — Neutrals (dark-first)
+     A near-black with slight blue cast, so the accent feels native.
+     --------------------------------------------------------------------- */
+  --zk-bg-0:    #07090D;   /* app shell / window background          */
+  --zk-bg-1:    #0B0F17;   /* page background                        */
+  --zk-bg-2:    #11161F;   /* cards, side panels                     */
+  --zk-bg-3:    #161C28;   /* hover surfaces, raised cards           */
+  --zk-bg-4:    #1F2633;   /* pressed / active surfaces              */
+
+  --zk-line-1:  #1B2230;   /* hairline divider                       */
+  --zk-line-2:  #232C3D;   /* strong divider, card border            */
+  --zk-line-3:  #2E394F;   /* input border, button outline           */
+
+  --zk-fg-1:    #ECEFF5;   /* primary text                           */
+  --zk-fg-2:    #B8C0CE;   /* secondary text                         */
+  --zk-fg-3:    #7E8799;   /* tertiary / meta                        */
+  --zk-fg-4:    #525A6B;   /* disabled / placeholder                 */
+
+  /* ---------------------------------------------------------------------
+     COLOR — Brand
+     Electric blue, single hero accent. Pair with cool neutrals only.
+     --------------------------------------------------------------------- */
+  --zk-brand:        #3D7BFF;   /* primary accent                    */
+  --zk-brand-hover:  #5891FF;
+  --zk-brand-press:  #2E68E6;
+  --zk-brand-soft:   #1A2A4D;   /* tinted surface (10% on bg)        */
+  --zk-brand-fg:     #FFFFFF;   /* text on brand fill                */
+
+  /* ---------------------------------------------------------------------
+     COLOR — Semantic
+     --------------------------------------------------------------------- */
+  --zk-success:      #2BB673;
+  --zk-success-soft: #14301F;
+  --zk-warning:      #E0A93B;
+  --zk-warning-soft: #2E2613;
+  --zk-danger:       #E5484D;
+  --zk-danger-soft:  #2D1416;
+  --zk-info:         #4CC2FF;
+  --zk-info-soft:    #0F2531;
+
+  /* Course states */
+  --zk-paid:        #C9A24E;   /* premium gold, never on text       */
+  --zk-paid-soft:   #2A2316;
+  --zk-free:        #2BB673;
+  --zk-progress:    var(--zk-brand);
+
+  /* ---------------------------------------------------------------------
+     TYPE — Families
+     --------------------------------------------------------------------- */
+  --zk-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --zk-font-serif: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --zk-font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  /* ---------------------------------------------------------------------
+     TYPE — Scale (1.200 minor third, 14px base)
+     --------------------------------------------------------------------- */
+  --zk-text-2xs: 11px;
+  --zk-text-xs:  12px;
+  --zk-text-sm:  13px;
+  --zk-text-md:  14px;   /* base UI                                 */
+  --zk-text-lg:  16px;
+  --zk-text-xl:  19px;
+  --zk-text-2xl: 23px;
+  --zk-text-3xl: 28px;
+  --zk-text-4xl: 34px;
+  --zk-text-5xl: 44px;
+  --zk-text-6xl: 56px;
+
+  /* Weights */
+  --zk-w-regular: 400;
+  --zk-w-medium:  500;
+  --zk-w-semi:    600;
+  --zk-w-bold:    700;
+  --zk-w-black:   800;
+
+  /* Line heights */
+  --zk-lh-tight: 1.15;
+  --zk-lh-snug:  1.3;
+  --zk-lh-base:  1.5;
+  --zk-lh-loose: 1.65;
+
+  /* Letter spacing */
+  --zk-track-tight:  -0.02em;
+  --zk-track-snug:   -0.01em;
+  --zk-track-normal: 0;
+  --zk-track-wide:   0.04em;
+  --zk-track-caps:   0.08em;
+
+  /* ---------------------------------------------------------------------
+     SPACING — 4-pt grid
+     --------------------------------------------------------------------- */
+  --zk-space-1:  4px;
+  --zk-space-2:  8px;
+  --zk-space-3:  12px;
+  --zk-space-4:  16px;
+  --zk-space-5:  20px;
+  --zk-space-6:  24px;
+  --zk-space-7:  32px;
+  --zk-space-8:  40px;
+  --zk-space-9:  48px;
+  --zk-space-10: 64px;
+  --zk-space-11: 80px;
+  --zk-space-12: 96px;
+
+  /* ---------------------------------------------------------------------
+     RADII
+     --------------------------------------------------------------------- */
+  --zk-radius-xs:  4px;
+  --zk-radius-sm:  6px;
+  --zk-radius-md:  8px;    /* default for buttons, inputs           */
+  --zk-radius-lg:  12px;   /* cards                                  */
+  --zk-radius-xl:  16px;   /* hero / large surfaces                  */
+  --zk-radius-2xl: 24px;
+  --zk-radius-pill: 999px;
+
+  /* ---------------------------------------------------------------------
+     SHADOWS — sparse and cool. Dark UI uses borders and tone shifts
+     more than shadow. Shadows reserved for menus / popovers.
+     --------------------------------------------------------------------- */
+  --zk-shadow-1: 0 1px 0 rgba(255,255,255,0.03) inset, 0 1px 2px rgba(0,0,0,0.3);
+  --zk-shadow-2: 0 4px 12px rgba(0,0,0,0.35);
+  --zk-shadow-3: 0 12px 32px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.4);
+  --zk-shadow-glow: 0 0 0 3px rgba(61,123,255,0.25);
+
+  /* ---------------------------------------------------------------------
+     MOTION
+     --------------------------------------------------------------------- */
+  --zk-ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
+  --zk-ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --zk-dur-fast:   120ms;
+  --zk-dur-base:   200ms;
+  --zk-dur-slow:   320ms;
+}
+
+/* =========================================================================
+   Semantic typography styles
+   Use these classes (or @extend the rules) on real elements.
+   ========================================================================= */
+
+.zk-display {
+  font-family: var(--zk-font-serif);
+  font-size: var(--zk-text-6xl);
+  line-height: var(--zk-lh-tight);
+  letter-spacing: var(--zk-track-tight);
+  font-weight: var(--zk-w-regular);
+  color: var(--zk-fg-1);
+}
+
+.zk-h1 {
+  font-family: var(--zk-font-sans);
+  font-size: var(--zk-text-4xl);
+  line-height: var(--zk-lh-tight);
+  letter-spacing: var(--zk-track-tight);
+  font-weight: var(--zk-w-bold);
+  color: var(--zk-fg-1);
+}
+
+.zk-h2 {
+  font-family: var(--zk-font-sans);
+  font-size: var(--zk-text-3xl);
+  line-height: var(--zk-lh-tight);
+  letter-spacing: var(--zk-track-tight);
+  font-weight: var(--zk-w-semi);
+  color: var(--zk-fg-1);
+}
+
+.zk-h3 {
+  font-family: var(--zk-font-sans);
+  font-size: var(--zk-text-2xl);
+  line-height: var(--zk-lh-snug);
+  letter-spacing: var(--zk-track-snug);
+  font-weight: var(--zk-w-semi);
+  color: var(--zk-fg-1);
+}
+
+.zk-h4 {
+  font-family: var(--zk-font-sans);
+  font-size: var(--zk-text-xl);
+  line-height: var(--zk-lh-snug);
+  font-weight: var(--zk-w-semi);
+  color: var(--zk-fg-1);
+}
+
+.zk-h5 {
+  font-family: var(--zk-font-sans);
+  font-size: var(--zk-text-lg);
+  line-height: var(--zk-lh-snug);
+  font-weight: var(--zk-w-semi);
+  color: var(--zk-fg-1);
+}
+
+.zk-body {
+  font-family: var(--zk-font-sans);
+  font-size: var(--zk-text-md);
+  line-height: var(--zk-lh-base);
+  font-weight: var(--zk-w-regular);
+  color: var(--zk-fg-2);
+}
+
+.zk-body-lg {
+  font-family: var(--zk-font-sans);
+  font-size: var(--zk-text-lg);
+  line-height: var(--zk-lh-loose);
+  color: var(--zk-fg-2);
+}
+
+.zk-caption {
+  font-family: var(--zk-font-sans);
+  font-size: var(--zk-text-xs);
+  line-height: var(--zk-lh-base);
+  color: var(--zk-fg-3);
+}
+
+.zk-overline {
+  font-family: var(--zk-font-mono);
+  font-size: var(--zk-text-xs);
+  letter-spacing: var(--zk-track-caps);
+  text-transform: uppercase;
+  color: var(--zk-fg-3);
+  font-weight: var(--zk-w-medium);
+}
+
+.zk-mono {
+  font-family: var(--zk-font-mono);
+  font-size: var(--zk-text-sm);
+  color: var(--zk-fg-1);
+}
+
+.zk-code-inline {
+  font-family: var(--zk-font-mono);
+  font-size: 0.9em;
+  background: var(--zk-bg-3);
+  border: 1px solid var(--zk-line-2);
+  padding: 1px 6px;
+  border-radius: var(--zk-radius-xs);
+  color: var(--zk-info);
+}

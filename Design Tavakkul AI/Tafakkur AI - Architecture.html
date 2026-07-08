@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tafakkur AI — System Architecture</title>
+<link rel="stylesheet" href="assets/colors_and_type.css"/>
+<style>
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--zk-bg-1); color: var(--zk-fg-2);
+    font-family: var(--zk-font-sans);
+    background: radial-gradient(ellipse 70% 40% at 50% -5%, #14203a 0%, var(--zk-bg-1) 55%) fixed, var(--zk-bg-1);
+  }
+  ::selection { background: rgba(61,123,255,0.3); }
+  a { color: var(--zk-brand); text-decoration: none; }
+
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 28px; }
+  .doc { padding: 0 0 120px; }
+
+  /* top bar */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(11,15,23,0.72); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border-bottom: 1px solid var(--zk-line-1);
+  }
+  .topbar .wrap { display: flex; align-items: center; gap: 12px; height: 56px; }
+  .mark { width: 26px; height: 26px; }
+  .topbar b { color: var(--zk-fg-1); font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+  .topbar .mono { font-family: var(--zk-font-mono); font-size: 11px; color: var(--zk-fg-3); text-transform: uppercase; letter-spacing: 0.08em; }
+  .topbar .right { margin-left: auto; font-family: var(--zk-font-mono); font-size: 11px; color: var(--zk-fg-3); }
+
+  /* hero */
+  .hero { padding: 72px 0 40px; border-bottom: 1px solid var(--zk-line-1); }
+  .eyebrow { font-family: var(--zk-font-mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--zk-brand); margin-bottom: 20px; }
+  .hero h1 { font-family: var(--zk-font-serif); font-weight: 400; font-size: 68px; line-height: 1.02; letter-spacing: -0.01em; color: var(--zk-fg-1); margin: 0 0 18px; }
+  .hero p { font-size: 19px; line-height: 1.6; max-width: 640px; margin: 0; color: var(--zk-fg-2); }
+  .hero .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .chip { font-family: var(--zk-font-mono); font-size: 11px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--zk-fg-2);
+          background: var(--zk-bg-2); border: 1px solid var(--zk-line-2); border-radius: 999px; padding: 7px 13px; }
+
+  /* sections */
+  section { padding: 56px 0 0; }
+  .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 28px; }
+  .sec-num { font-family: var(--zk-font-mono); font-size: 13px; color: var(--zk-brand); font-weight: 500; padding-top: 6px; min-width: 34px; }
+  .sec-head h2 { font-family: var(--zk-font-sans); font-weight: 700; font-size: 30px; letter-spacing: -0.02em; color: var(--zk-fg-1); margin: 0; line-height: 1.1; }
+  .sec-head .sub { color: var(--zk-fg-3); font-size: 15px; margin-top: 6px; }
+  .body { padding-left: 50px; }
+  p.lead { font-size: 16px; line-height: 1.7; color: var(--zk-fg-2); margin: 0 0 18px; max-width: 720px; }
+
+  /* cards / grid */
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--zk-bg-2); border: 1px solid var(--zk-line-2); border-radius: 14px; padding: 18px 20px; }
+  .card h3 { font-size: 16px; color: var(--zk-fg-1); margin: 0 0 8px; font-weight: 600; letter-spacing: -0.01em; }
+  .card h3 .k { font-family: var(--zk-font-mono); font-size: 11px; color: var(--zk-brand); display: block; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; font-weight: 500; }
+  .card p { font-size: 14px; line-height: 1.6; color: var(--zk-fg-2); margin: 0; }
+  .card ul { margin: 8px 0 0; padding-left: 18px; }
+  .card li { font-size: 13.5px; line-height: 1.7; color: var(--zk-fg-2); }
+
+  .ov { font-family: var(--zk-font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--zk-fg-3); margin: 0 0 12px; }
+
+  /* layered architecture diagram */
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  .layer { border-radius: 12px; padding: 14px 16px; border: 1px solid var(--zk-line-2); background: var(--zk-bg-2); position: relative; }
+  .layer .lt { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .layer .lt b { color: var(--zk-fg-1); font-size: 14px; font-weight: 600; }
+  .layer .lt .tag { font-family: var(--zk-font-mono); font-size: 10px; color: var(--zk-fg-3); margin-left: auto; text-transform: uppercase; letter-spacing: 0.06em; }
+  .nodes { display: flex; flex-wrap: wrap; gap: 7px; }
+  .node { font-family: var(--zk-font-mono); font-size: 11.5px; color: var(--zk-fg-2); background: var(--zk-bg-3); border: 1px solid var(--zk-line-2); border-radius: 8px; padding: 6px 10px; }
+  .layer.ai { border-color: rgba(61,123,255,0.45); background: linear-gradient(135deg, rgba(61,123,255,0.10), rgba(124,92,255,0.04)); }
+  .layer.ai .node { border-color: rgba(61,123,255,0.3); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .arrow-down { text-align: center; color: var(--zk-fg-4); font-size: 12px; font-family: var(--zk-font-mono); padding: 1px 0; }
+
+  /* pipeline */
+  .pipe { display: flex; flex-direction: column; gap: 0; }
+  .pnode { display: flex; align-items: flex-start; gap: 14px; }
+  .pnode .ico { width: 34px; height: 34px; border-radius: 9px; background: var(--zk-brand-soft); border: 1px solid rgba(61,123,255,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--zk-font-mono); font-size: 12px; color: var(--zk-brand); }
+  .pnode .pc { padding-bottom: 18px; }
+  .pnode .pc b { color: var(--zk-fg-1); font-size: 14.5px; }
+  .pnode .pc p { font-size: 13.5px; color: var(--zk-fg-2); margin: 3px 0 0; line-height: 1.55; }
+  .prail { width: 34px; display: flex; justify-content: center; }
+  .prail .line { width: 1.5px; background: var(--zk-line-3); flex: 1; }
+
+  /* tree */
+  pre.tree { font-family: var(--zk-font-mono); font-size: 12.5px; line-height: 1.7; color: var(--zk-fg-2); background: var(--zk-bg-0); border: 1px solid var(--zk-line-2); border-radius: 12px; padding: 20px 22px; overflow-x: auto; margin: 0; }
+  pre.tree .c { color: var(--zk-fg-4); }
+  pre.tree .d { color: var(--zk-brand); }
+  pre.tree .n { color: var(--zk-fg-3); }
+
+  /* table */
+  .ent { background: var(--zk-bg-2); border: 1px solid var(--zk-line-2); border-radius: 12px; overflow: hidden; }
+  .ent .eh { background: var(--zk-bg-3); padding: 10px 14px; font-family: var(--zk-font-mono); font-size: 12px; color: var(--zk-fg-1); font-weight: 500; letter-spacing: 0.04em; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--zk-line-2); }
+  .ent .row { display: flex; padding: 8px 14px; border-bottom: 1px solid var(--zk-line-1); font-size: 13px; }
+  .ent .row:last-child { border-bottom: none; }
+  .ent .row .f { font-family: var(--zk-font-mono); font-size: 12px; color: var(--zk-fg-2); width: 42%; }
+  .ent .row .t { font-family: var(--zk-font-mono); font-size: 12px; color: var(--zk-fg-3); }
+  .badge { font-family: var(--zk-font-mono); font-size: 9.5px; padding: 2px 6px; border-radius: 5px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .b-local { background: rgba(43,182,115,0.16); color: var(--zk-success); }
+  .b-cloud { background: rgba(76,194,255,0.14); color: var(--zk-info); }
+
+  /* roadmap */
+  .road { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+  .phase { background: var(--zk-bg-2); border: 1px solid var(--zk-line-2); border-radius: 14px; padding: 18px; }
+  .phase .pt { font-family: var(--zk-font-mono); font-size: 11px; color: var(--zk-brand); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; }
+  .phase h3 { font-size: 16px; color: var(--zk-fg-1); margin: 0 0 14px; font-weight: 600; }
+  .phase .item { display: flex; gap: 9px; padding: 6px 0; font-size: 13.5px; color: var(--zk-fg-2); line-height: 1.5; border-top: 1px solid var(--zk-line-1); }
+  .phase .item:first-of-type { border-top: none; }
+  .phase .item .m { font-family: var(--zk-font-mono); font-size: 10px; color: var(--zk-fg-4); flex-shrink: 0; padding-top: 2px; }
+
+  .callout { border-radius: 12px; padding: 16px 18px; border: 1px solid; display: flex; gap: 12px; align-items: flex-start; font-size: 14px; line-height: 1.6; }
+  .callout.warn { background: var(--zk-warning-soft); border-color: rgba(224,169,59,0.35); color: #E9C77E; }
+  .callout.info { background: var(--zk-brand-soft); border-color: rgba(61,123,255,0.35); color: #AEC6FF; }
+  .callout b { color: var(--zk-fg-1); }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .splitlist { list-style: none; padding: 0; margin: 0; }
+  .splitlist li { display: flex; gap: 10px; padding: 9px 0; border-top: 1px solid var(--zk-line-1); font-size: 14px; color: var(--zk-fg-2); line-height: 1.5; }
+  .splitlist li:first-child { border-top: none; }
+  .splitlist .lab { font-family: var(--zk-font-mono); font-size: 11px; color: var(--zk-brand); flex-shrink: 0; width: 84px; padding-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  hr.div { border: none; border-top: 1px solid var(--zk-line-1); margin: 0; }
+
+  @media (max-width: 760px) {
+    .body { padding-left: 0; }
+    .g2, .g3, .road, .two { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 44px; }
+    .sec-head { gap: 10px; }
+  }
+  @media print {
+    body { background: #fff; color: #111; }
+    .topbar { display: none; }
+    .card, .layer, .phase, .ent { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <svg class="mark" viewBox="0 0 32 32" fill="none"><path d="M9 8L4 16l5 8M23 8l5 8-5 8" stroke="#3D7BFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 9l6 14" stroke="#ECEFF5" stroke-width="2.2" stroke-linecap="round"/></svg>
+    <b>Tafakkur AI</b>
+    <span class="mono">System Architecture</span>
+    <span class="right">v0.1 · solo / small team</span>
+  </div>
+</div>
+
+<div class="doc">
+<div class="wrap">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="eyebrow">Production-ready system design</div>
+    <h1>Think, learn, act<br/>and reflect — daily.</h1>
+    <p>Tafakkur AI is a local-first, on-device AI companion for personal growth on Apple platforms. It unifies productivity, learning, spiritual reflection, career and finance behind one private coach — <b style="color:var(--zk-fg-1)">Murabbiy</b> — that plans your day, teaches you, and reflects with you, without your data leaving the phone.</p>
+    <div class="meta">
+      <span class="chip">SwiftUI · iOS 18+</span>
+      <span class="chip">MVVM-C + Clean</span>
+      <span class="chip">Apple Intelligence / Core ML</span>
+      <span class="chip">SwiftData + CloudKit</span>
+      <span class="chip">Offline-first</span>
+    </div>
+  </div>
+
+  <!-- 1 VISION -->
+  <section id="vision">
+    <div class="sec-head"><div class="sec-num">01</div><div><h2>Vision &amp; value proposition</h2><div class="sub">Why this exists, and the one thing it does better than anything else.</div></div></div>
+    <div class="body">
+      <p class="lead">Most growth apps are single-purpose silos — a habit tracker here, a language app there, a journal somewhere else. None of them <em>know</em> you across domains. Tafakkur AI's wedge is a single on-device model of the user that every module reads from and writes to, so the coach can reason across your day: it knows your interview is Thursday <em>and</em> your focus peaks before noon <em>and</em> that tafakkur matters to you — and plans accordingly.</p>
+      <div class="grid g3">
+        <div class="card"><h3><span class="k">Promise</span>One private coach</h3><p>A daily AI brief that plans, teaches and reflects — grounded in a memory of your goals, habits and progress.</p></div>
+        <div class="card"><h3><span class="k">Moat</span>Cross-domain memory</h3><p>Shared, on-device personalization store. The more you use it, the better every module gets — and competitors can't copy your data.</p></div>
+        <div class="card"><h3><span class="k">Principle</span>Private by default</h3><p>Inference runs on-device. Nothing leaves the phone unless you explicitly enable iCloud sync. Trust is the product.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 PERSONAS -->
+  <section id="personas">
+    <div class="sec-head"><div class="sec-num">02</div><div><h2>Who it's for</h2><div class="sub">Three personas the MVP is shaped around.</div></div></div>
+    <div class="body">
+      <div class="grid g3">
+        <div class="card"><h3><span class="k">Primary</span>The self-driven learner</h3><p>22–30, studying or early-career. Learning English &amp; programming, prepping for jobs or grad school. Wants structure and a coach that holds them accountable.</p></div>
+        <div class="card"><h3><span class="k">Secondary</span>The reflective builder</h3><p>Works in tech, values daily tafakkur and gratitude. Wants productivity and spiritual reflection in one calm place, not five noisy apps.</p></div>
+        <div class="card"><h3><span class="k">Tertiary</span>The disciplined improver</h3><p>Tracks habits, finances and goals. Motivated by streaks, weekly reviews and visible progress. Privacy-conscious.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 DAILY JOURNEY -->
+  <section id="journey">
+    <div class="sec-head"><div class="sec-num">03</div><div><h2>The core daily loop</h2><div class="sub">The single flow everything else hangs off.</div></div></div>
+    <div class="body">
+      <p class="lead">Tafakkur AI is a <b style="color:var(--zk-fg-1)">daily ritual</b>, not a destination. The loop is designed so the coach earns a few minutes of trust each morning and each night.</p>
+      <div class="pipe">
+        <div class="pnode"><div class="ico">07:30</div><div style="flex:1"><div class="prail" style="display:none"></div><div class="pc"><b>Morning tafakkur</b><p>Open to a calm reflection prompt + gratitude. Sets intention before the feed.</p></div></div></div>
+        <div class="pnode"><div class="prail"><div class="line"></div></div><div class="pc"><b>AI daily brief</b><p>Murabbiy reads calendar, sleep, goals and progress, then proposes a realistic plan — focus blocks, one lesson, the highest-leverage task.</p></div></div>
+        <div class="pnode"><div class="prail"><div class="line"></div></div><div class="pc"><b>Act through the day</b><p>Focus sessions, an AI-generated lesson + quiz, tasks and habits — each nudged in context, never nagging.</p></div></div>
+        <div class="pnode"><div class="prail"><div class="line"></div></div><div class="pc"><b>Evening reflection</b><p>A 2-minute review. The coach notes what worked, updates memory, and seeds tomorrow's brief.</p></div></div>
+        <div class="pnode"><div class="ico" style="background:rgba(43,182,115,0.16);border-color:rgba(43,182,115,0.3);color:var(--zk-success)">∞</div><div class="pc"><b>Memory compounds</b><p>Every interaction refines the on-device model — closing the loop and improving tomorrow.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 SCOPE -->
+  <section id="scope">
+    <div class="sec-head"><div class="sec-num">04</div><div><h2>MVP vs. future scope</h2><div class="sub">Ship the loop. Defer the network effects.</div></div></div>
+    <div class="body">
+      <div class="two">
+        <div>
+          <p class="ov">MVP — the loop (months 0–3)</p>
+          <ul class="splitlist">
+            <li><span class="lab">Coach</span>Daily brief, chat, on-device memory</li>
+            <li><span class="lab">Productivity</span>Tasks, habits, focus timer, weekly plan</li>
+            <li><span class="lab">Reflect</span>Tafakkur journaling + gratitude</li>
+            <li><span class="lab">Learn</span>One subject (programming) with AI lessons + quizzes</li>
+          </ul>
+        </div>
+        <div>
+          <p class="ov">Future — depth &amp; network (3–12 months)</p>
+          <ul class="splitlist">
+            <li><span class="lab">Learn+</span>English speaking, math, multi-subject</li>
+            <li><span class="lab">Career</span>CV scoring, mock interviews, roadmaps</li>
+            <li><span class="lab">Finance</span>Portfolio &amp; financial-habit tracking</li>
+            <li><span class="lab">Social</span>Thoughts, groups, accountability</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout info" style="margin-top:22px"><div>⚑</div><div><b>Sequencing rationale.</b> The coach + memory + reflection loop is the moat and must feel magical solo. Social and finance carry compliance and trust-and-safety weight — they wait until the core loop retains users.</div></div>
+    </div>
+  </section>
+
+  <!-- 5 SYSTEM ARCHITECTURE -->
+  <section id="architecture">
+    <div class="sec-head"><div class="sec-num">05</div><div><h2>System architecture</h2><div class="sub">Layered, local-first, with AI as a first-class layer.</div></div></div>
+    <div class="body">
+      <div class="stack">
+        <div class="layer">
+          <div class="lt"><span class="dot" style="background:#4CC2FF"></span><b>Presentation</b><span class="tag">SwiftUI</span></div>
+          <div class="nodes"><span class="node">Today</span><span class="node">Coach</span><span class="node">Learn</span><span class="node">Productivity</span><span class="node">Reflect</span><span class="node">Career</span><span class="node">Social</span><span class="node">Finance</span></div>
+        </div>
+        <div class="arrow-down">↓ view models bind to use cases</div>
+        <div class="layer">
+          <div class="lt"><span class="dot" style="background:#7C5CFF"></span><b>Feature modules</b><span class="tag">MVVM-C · one SPM package each</span></div>
+          <div class="nodes"><span class="node">CoachKit</span><span class="node">LearnKit</span><span class="node">TasksKit</span><span class="node">ReflectKit</span><span class="node">CareerKit</span><span class="node">FinanceKit</span><span class="node">SocialKit</span></div>
+        </div>
+        <div class="arrow-down">↓ depend only on Domain protocols</div>
+        <div class="layer">
+          <div class="lt"><span class="dot" style="background:#3D7BFF"></span><b>Domain</b><span class="tag">pure Swift · no frameworks</span></div>
+          <div class="nodes"><span class="node">Entities</span><span class="node">Use cases</span><span class="node">Repository protocols</span><span class="node">Coaching policy</span></div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="layer ai">
+          <div class="lt"><span class="dot" style="background:#3D7BFF"></span><b>AI orchestration</b><span class="tag">the brain</span></div>
+          <div class="nodes"><span class="node">ContextBuilder</span><span class="node">PromptComposer</span><span class="node">MemoryStore</span><span class="node">SafetyFilter</span><span class="node">ToolRouter</span></div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="layer">
+          <div class="lt"><span class="dot" style="background:#2BB673"></span><b>Data</b><span class="tag">repositories</span></div>
+          <div class="nodes"><span class="node">SwiftData (local)</span><span class="node">CloudKit (sync)</span><span class="node">Keychain</span><span class="node">FileStore</span></div>
+        </div>
+        <div class="arrow-down">↓</div>
+        <div class="layer ai">
+          <div class="lt"><span class="dot" style="background:#3D7BFF"></span><b>On-device intelligence</b><span class="tag">Apple frameworks</span></div>
+          <div class="nodes"><span class="node">Foundation Models (LLM)</span><span class="node">Core ML</span><span class="node">Speech / SFSpeechRecognizer</span><span class="node">NaturalLanguage</span><span class="node">App Intents</span></div>
+        </div>
+      </div>
+      <div class="callout info" style="margin-top:18px"><div>◆</div><div><b>Dependency rule.</b> Arrows point inward only. UI knows nothing of Core ML; modules talk to Domain protocols; the AI layer is injected. Swapping the on-device LLM for a cloud fallback is a one-adapter change.</div></div>
+    </div>
+  </section>
+
+  <!-- 6 AI SYSTEM -->
+  <section id="ai">
+    <div class="sec-head"><div class="sec-num">06</div><div><h2>AI system design</h2><div class="sub">How on-device intelligence actually works here.</div></div></div>
+    <div class="body">
+      <p class="lead">The AI layer is deterministic plumbing around a non-deterministic core. Each coach turn is a pipeline: gather context → recall memory → compose a constrained prompt → run on-device → filter → act → write memory back.</p>
+
+      <p class="ov">Request pipeline</p>
+      <div class="pipe">
+        <div class="pnode"><div class="ico">1</div><div class="pc"><b>ContextBuilder</b><p>Assembles a structured snapshot: time, calendar, today's plan, active goals, recent reflections, streaks. Strictly typed — no free-form dumping.</p></div></div>
+        <div class="pnode"><div class="prail"><div class="line"></div></div><div class="pc"><b>MemoryStore (recall)</b><p>Pulls the user model — long-term goals, learned patterns ("focus peaks 8–11am"), preferences, and recent embeddings via NaturalLanguage for semantic recall.</p></div></div>
+        <div class="pnode"><div class="prail"><div class="line"></div></div><div class="pc"><b>PromptComposer</b><p>Renders a versioned template: system role (Murabbiy persona) + capabilities + context + memory + the user turn. Output is schema-constrained (guided generation) so modules get structured actions, not prose.</p></div></div>
+        <div class="pnode"><div class="prail"><div class="line"></div></div><div class="pc"><b>Foundation Models (on-device)</b><p>Apple's on-device LLM runs the turn. Heavier or specialized tasks (scoring pronunciation, classifying intent) use dedicated Core ML models.</p></div></div>
+        <div class="pnode"><div class="prail"><div class="line"></div></div><div class="pc"><b>SafetyFilter</b><p>Validates output against the schema and the safety policy (§ below) before anything reaches a module or the user.</p></div></div>
+        <div class="pnode"><div class="prail"><div class="line"></div></div><div class="pc"><b>ToolRouter → modules</b><p>Structured actions (create task, schedule block, generate quiz) are dispatched to feature use cases via App Intents. Side effects are explicit and auditable.</p></div></div>
+        <div class="pnode"><div class="ico" style="background:rgba(43,182,115,0.16);border-color:rgba(43,182,115,0.3);color:var(--zk-success)">∞</div><div class="pc"><b>MemoryStore (write)</b><p>Salient takeaways are distilled and written back, so the next turn is better. Memory is user-visible and editable.</p></div></div>
+      </div>
+
+      <div class="grid g2" style="margin-top:24px">
+        <div class="card"><h3><span class="k">Prompt system</span>Versioned &amp; constrained</h3><p>Templates are versioned assets, not strings in code. Every response uses guided generation against a Swift type, so a malformed model output simply fails validation instead of corrupting a module.</p></div>
+        <div class="card"><h3><span class="k">Personalization</span>The memory engine</h3><p>A typed store of goals, traits, patterns and progress, plus on-device embeddings for semantic recall. It is the moat — and it never leaves the device unless synced via the user's private CloudKit DB.</p></div>
+      </div>
+
+      <p class="ov" style="margin-top:26px">Safety layer — non-negotiable</p>
+      <div class="grid g3">
+        <div class="card"><h3>Spiritual content</h3><p>Educational, non-denominational, non-extremist tone enforced by system prompt + a classifier gate. The app never issues religious rulings — it prompts personal reflection only.</p></div>
+        <div class="card"><h3>Financial content</h3><p>Insights are framed as awareness, never advice. A guardrail blocks buy/sell recommendations and surfaces a persistent "not financial advice" disclaimer.</p></div>
+        <div class="card"><h3>Wellbeing</h3><p>Crisis &amp; self-harm intent is detected on-device and routed to resources, never to generative output. Hard fail-closed on uncertainty.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 DATA FLOW -->
+  <section id="dataflow">
+    <div class="sec-head"><div class="sec-num">07</div><div><h2>Data flow across modules</h2><div class="sub">How a single signal moves through the system.</div></div></div>
+    <div class="body">
+      <p class="lead">Worked example — <b style="color:var(--zk-fg-1)">"I have an interview Thursday and I'm nervous."</b></p>
+      <div class="stack">
+        <div class="layer"><div class="lt"><b>① Capture</b><span class="tag">CoachKit</span></div><div class="nodes"><span class="node">chat turn → ContextBuilder</span></div></div>
+        <div class="arrow-down">↓</div>
+        <div class="layer ai"><div class="lt"><b>② Reason</b><span class="tag">AI orchestration</span></div><div class="nodes"><span class="node">intent = prep + reassure</span><span class="node">recall: goal "backend role"</span><span class="node">recall: pattern "rehearsal lowers nerves"</span></div></div>
+        <div class="arrow-down">↓ structured actions</div>
+        <div class="layer"><div class="lt"><b>③ Act across modules</b><span class="tag">ToolRouter</span></div><div class="nodes"><span class="node">TasksKit: add 2 prep blocks</span><span class="node">CareerKit: queue mock interview</span><span class="node">CoachKit: empathetic reply</span></div></div>
+        <div class="arrow-down">↓</div>
+        <div class="layer"><div class="lt"><b>④ Persist &amp; reflect</b><span class="tag">Data + Memory</span></div><div class="nodes"><span class="node">SwiftData: tasks, events</span><span class="node">Memory: "interview Thu · anxious"</span><span class="node">Today brief updates</span></div></div>
+      </div>
+      <p class="lead" style="margin-top:18px">One sentence touched three modules, the planner and the memory store — all on-device, all reversible. That cross-module reach is the product.</p>
+    </div>
+  </section>
+
+  <!-- 8 DATA MODEL -->
+  <section id="data">
+    <div class="sec-head"><div class="sec-num">08</div><div><h2>Data model</h2><div class="sub">Local SwiftData is the source of truth; CloudKit mirrors it per-user.</div></div></div>
+    <div class="body">
+      <p class="lead">Every record is <span class="badge b-local">local</span> first. Sync-eligible records also carry a CloudKit mirror <span class="badge b-cloud">cloud</span> in the user's <em>private</em> database — never a shared/public store. Social content is the only data in a separate, opt-in public zone.</p>
+      <div class="grid g3">
+        <div class="ent"><div class="eh">User <span class="badge b-cloud">cloud</span></div>
+          <div class="row"><span class="f">id</span><span class="t">UUID</span></div>
+          <div class="row"><span class="f">displayName</span><span class="t">String</span></div>
+          <div class="row"><span class="f">streak</span><span class="t">Int</span></div>
+          <div class="row"><span class="f">level · xp</span><span class="t">Int</span></div>
+          <div class="row"><span class="f">prefs</span><span class="t">Settings</span></div>
+        </div>
+        <div class="ent"><div class="eh">MemoryItem <span class="badge b-cloud">cloud</span></div>
+          <div class="row"><span class="f">id</span><span class="t">UUID</span></div>
+          <div class="row"><span class="f">kind</span><span class="t">goal|pattern|value</span></div>
+          <div class="row"><span class="f">text</span><span class="t">String</span></div>
+          <div class="row"><span class="f">embedding</span><span class="t">[Float]</span></div>
+          <div class="row"><span class="f">confidence</span><span class="t">Double</span></div>
+        </div>
+        <div class="ent"><div class="eh">PlanItem <span class="badge b-local">local</span></div>
+          <div class="row"><span class="f">id</span><span class="t">UUID</span></div>
+          <div class="row"><span class="f">kind</span><span class="t">task|focus|learn</span></div>
+          <div class="row"><span class="f">start · duration</span><span class="t">Date · Int</span></div>
+          <div class="row"><span class="f">moduleRef</span><span class="t">URI</span></div>
+          <div class="row"><span class="f">done</span><span class="t">Bool</span></div>
+        </div>
+        <div class="ent"><div class="eh">Habit <span class="badge b-cloud">cloud</span></div>
+          <div class="row"><span class="f">id · name</span><span class="t">UUID · String</span></div>
+          <div class="row"><span class="f">cadence</span><span class="t">RRULE</span></div>
+          <div class="row"><span class="f">streak</span><span class="t">Int</span></div>
+          <div class="row"><span class="f">log</span><span class="t">[Date]</span></div>
+        </div>
+        <div class="ent"><div class="eh">JournalEntry <span class="badge b-cloud">cloud</span></div>
+          <div class="row"><span class="f">id · date</span><span class="t">UUID · Date</span></div>
+          <div class="row"><span class="f">mood</span><span class="t">Mood</span></div>
+          <div class="row"><span class="f">body</span><span class="t">String (enc.)</span></div>
+          <div class="row"><span class="f">gratitude</span><span class="t">[String]</span></div>
+        </div>
+        <div class="ent"><div class="eh">LessonProgress <span class="badge b-cloud">cloud</span></div>
+          <div class="row"><span class="f">subjectId</span><span class="t">UUID</span></div>
+          <div class="row"><span class="f">module · lesson</span><span class="t">Int · Int</span></div>
+          <div class="row"><span class="f">mastery</span><span class="t">Double</span></div>
+          <div class="row"><span class="f">quizScores</span><span class="t">[Score]</span></div>
+        </div>
+      </div>
+      <div class="callout warn" style="margin-top:18px"><div>⚠</div><div><b>Encryption.</b> Journal bodies and memory are encrypted at rest; keys live in Keychain (Secure Enclave-backed). Sync uses CloudKit private DB end-to-end. A "panic forget" control wipes memory locally and in the cloud.</div></div>
+    </div>
+  </section>
+
+  <!-- 9 FOLDER STRUCTURE -->
+  <section id="structure">
+    <div class="sec-head"><div class="sec-num">09</div><div><h2>iOS module structure</h2><div class="sub">A thin app target over independent Swift Packages — buildable solo, scalable to a team.</div></div></div>
+    <div class="body">
+<pre class="tree">TafakkurAI<span class="c">/</span>
+├── <span class="d">App/</span>                      <span class="c"># thin shell: DI, routing, app lifecycle</span>
+│   ├── TafakkurApp.swift
+│   ├── AppCoordinator.swift     <span class="c"># MVVM-C root coordinator</span>
+│   └── DIContainer.swift
+├── <span class="d">Packages/</span>                 <span class="c"># local SPM packages — fast, isolated builds</span>
+│   ├── <span class="d">DesignSystem/</span>         <span class="c"># tokens, components, SF/JetBrains styles</span>
+│   ├── <span class="d">DomainKit/</span>            <span class="c"># entities, use cases, repo protocols</span>
+│   ├── <span class="d">DataKit/</span>              <span class="c"># SwiftData + CloudKit repositories</span>
+│   ├── <span class="d">AIKit/</span>                <span class="c"># ContextBuilder, PromptComposer, Memory, Safety</span>
+│   │   ├── Orchestrator.swift
+│   │   ├── Prompts/             <span class="c"># versioned .md templates</span>
+│   │   ├── Memory/
+│   │   └── Safety/
+│   └── <span class="d">Features/</span>
+│       ├── <span class="d">CoachKit/</span>          <span class="n">View · ViewModel · Coordinator</span>
+│       ├── <span class="d">LearnKit/</span>
+│       ├── <span class="d">TasksKit/</span>
+│       ├── <span class="d">ReflectKit/</span>
+│       ├── <span class="d">CareerKit/</span>
+│       ├── <span class="d">FinanceKit/</span>
+│       └── <span class="d">SocialKit/</span>
+├── <span class="d">Intents/</span>                  <span class="c"># App Intents = the AI tool surface + Siri/Widgets</span>
+└── <span class="d">Tests/</span>                    <span class="c"># unit (domain, AI schema) + snapshot (UI)</span></pre>
+      <div class="callout info" style="margin-top:18px"><div>◆</div><div><b>Why SPM packages.</b> Each feature builds and tests in isolation, enforces the dependency rule at compile time, and keeps incremental builds fast for a solo developer. A new module is a new package, not a new tangle.</div></div>
+    </div>
+  </section>
+
+  <!-- 10 ROADMAP -->
+  <section id="roadmap">
+    <div class="sec-head"><div class="sec-num">10</div><div><h2>Build roadmap</h2><div class="sub">Realistic for one developer with AI assistance.</div></div></div>
+    <div class="body">
+      <div class="road">
+        <div class="phase">
+          <div class="pt">Phase 1 · 0–3 months</div>
+          <h3>The loop</h3>
+          <div class="item"><span class="m">M1</span>Design system, app shell, DI, navigation</div>
+          <div class="item"><span class="m">M1</span>SwiftData models + local repos</div>
+          <div class="item"><span class="m">M2</span>Productivity + Reflect modules</div>
+          <div class="item"><span class="m">M2</span>AIKit: context → prompt → on-device → safety</div>
+          <div class="item"><span class="m">M3</span>Coach chat + daily brief + memory v1</div>
+          <div class="item"><span class="m">M3</span>TestFlight beta · the loop end-to-end</div>
+        </div>
+        <div class="phase">
+          <div class="pt">Phase 2 · 3–6 months</div>
+          <h3>Depth</h3>
+          <div class="item"><span class="m">M4</span>LearnKit: AI lessons + quizzes (programming)</div>
+          <div class="item"><span class="m">M4</span>CloudKit private sync + encryption</div>
+          <div class="item"><span class="m">M5</span>English speaking (Speech + scoring model)</div>
+          <div class="item"><span class="m">M5</span>CareerKit: CV score + mock interview</div>
+          <div class="item"><span class="m">M6</span>Widgets, Live Activities, Siri intents</div>
+          <div class="item"><span class="m">M6</span>Public launch · paywall on</div>
+        </div>
+        <div class="phase">
+          <div class="pt">Phase 3 · 6–12 months</div>
+          <h3>Reach</h3>
+          <div class="item"><span class="m">M7</span>FinanceKit (read-only tracking)</div>
+          <div class="item"><span class="m">M8</span>SocialKit: thoughts + groups (opt-in)</div>
+          <div class="item"><span class="m">M9</span>Math + multi-subject learning</div>
+          <div class="item"><span class="m">M10</span>iPad &amp; Apple Watch companions</div>
+          <div class="item"><span class="m">M11</span>Memory insights &amp; weekly reviews</div>
+          <div class="item"><span class="m">M12</span>Localization (Uzbek, Russian, Arabic)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 MONETIZATION -->
+  <section id="money">
+    <div class="sec-head"><div class="sec-num">11</div><div><h2>Monetization</h2><div class="sub">Subscription, gated on the coach — the part that costs nothing to run on-device.</div></div></div>
+    <div class="body">
+      <div class="grid g3">
+        <div class="card"><h3><span class="k">Free</span>The habit</h3><p>Productivity, basic reflection, 1 daily AI brief, limited coach turns. Enough to build the daily ritual and trust.</p></div>
+        <div class="card"><h3><span class="k">Plus · ~$7/mo</span>The coach</h3><p>Unlimited coach, AI lessons &amp; quizzes, full memory, CV/interview prep, sync across devices. The core upgrade.</p></div>
+        <div class="card"><h3><span class="k">Lifetime</span>Trust play</h3><p>One-time unlock for privacy-first users who dislike subscriptions. On-device inference makes margins viable.</p></div>
+      </div>
+      <div class="callout info" style="margin-top:18px"><div>◆</div><div><b>Unit economics.</b> On-device inference means near-zero marginal cost per active user — unlike cloud-LLM competitors burning tokens. That's a structural margin advantage and a privacy story in one.</div></div>
+    </div>
+  </section>
+
+  <!-- 12 RISKS -->
+  <section id="risks">
+    <div class="sec-head"><div class="sec-num">12</div><div><h2>Risks &amp; challenges</h2><div class="sub">The things most likely to bite — and the mitigation.</div></div></div>
+    <div class="body">
+      <ul class="splitlist">
+        <li><span class="lab">Model</span><span><b style="color:var(--zk-fg-1)">On-device LLM quality.</b> Apple's on-device model is smaller than frontier cloud models. Mitigate with tight prompts, guided generation, and Core ML task-specific models; offer an optional cloud fallback for heavy tasks.</span></li>
+        <li><span class="lab">Scope</span><span><b style="color:var(--zk-fg-1)">Seven modules is a lot for a solo team.</b> The roadmap ships the loop first and treats Career/Finance/Social as later, independently-shippable packages — not launch blockers.</span></li>
+        <li><span class="lab">Trust</span><span><b style="color:var(--zk-fg-1)">Spiritual &amp; financial content liability.</b> Hard guardrails, educational-only framing, and classifier gates. Never advice, never rulings. Legal review before Finance/Social launch.</span></li>
+        <li><span class="lab">Device</span><span><b style="color:var(--zk-fg-1)">Hardware floor.</b> Apple Intelligence requires recent chips. Gracefully degrade to Core ML + heuristics on older devices; gate the premium coach to capable hardware.</span></li>
+        <li><span class="lab">Retention</span><span><b style="color:var(--zk-fg-1)">Daily-habit apps churn fast.</b> The morning brief + streaks + evening reflection are the retention engine; instrument the loop and optimize day-1/day-7/day-30 ruthlessly.</span></li>
+        <li><span class="lab">Privacy</span><span><b style="color:var(--zk-fg-1)">Memory is sensitive by definition.</b> Encryption at rest, private CloudKit only, user-visible &amp; editable memory, one-tap forget. Privacy is a feature, not a footnote.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <div style="margin-top:72px; padding-top:24px; border-top:1px solid var(--zk-line-1); display:flex; align-items:center; gap:10px;">
+    <svg class="mark" viewBox="0 0 32 32" fill="none"><path d="M9 8L4 16l5 8M23 8l5 8-5 8" stroke="#3D7BFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span style="font-family:var(--zk-font-mono); font-size:12px; color:var(--zk-fg-3);">Tafakkur AI — architecture v0.1 · companion to the interactive prototype</span>
+  </div>
+
+</div>
+</div>
+
+</body>
+</html>

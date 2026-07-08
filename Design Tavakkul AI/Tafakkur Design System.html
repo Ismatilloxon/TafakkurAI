@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tafakkur — Fajr Design System</title>
+<style>
+  :root{
+    --teal:#13A88C; --teal-h:#22C0A2; --teal-soft:rgba(19,168,140,0.16);
+    --gold:#D4A24A; --gold-soft:rgba(212,162,74,0.16);
+    --sage:#7FB85C; --sky:#46B4E8; --violet:#8E79F0; --rose:#E0607F;
+    --fg:#FBFAF7; --fg2:rgba(243,239,231,0.64); --fg3:rgba(243,239,231,0.36); --fg4:rgba(243,239,231,0.18);
+    --bg0:#080A0A; --bg1:#0D0F11; --card:#16181C; --card2:#1B1E22; --card3:#23262B;
+    --sep:rgba(150,146,134,0.16); --line:#2A2D32;
+    --sans:-apple-system,'SF Pro Text','Inter',sans-serif;
+    --display:-apple-system,'SF Pro Display','Inter',sans-serif;
+    --mono:'SF Mono',ui-monospace,'JetBrains Mono',Menlo,monospace;
+    --serif:'New York','Instrument Serif','Iowan Old Style',Georgia,serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:var(--bg1); color:var(--fg); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+  body{ background:radial-gradient(120% 60% at 50% -8%, #14130f 0%, #0a0a08 55%), var(--bg1); background-attachment:fixed; }
+  .wrap{ max-width:1080px; margin:0 auto; padding:0 32px; }
+  a{ color:inherit; }
+  .mono{ font-family:var(--mono); }
+  .serif{ font-family:var(--serif); }
+
+  /* hero */
+  header.hero{ padding:96px 0 56px; position:relative; overflow:hidden; }
+  header.hero::before{ content:""; position:absolute; top:-220px; left:50%; transform:translateX(-50%); width:760px; height:520px; border-radius:50%; background:radial-gradient(closest-side, rgba(19,168,140,0.20), rgba(212,162,74,0.06) 55%, transparent 72%); pointer-events:none; }
+  .eyebrow{ font-family:var(--mono); font-size:12px; letter-spacing:0.22em; text-transform:uppercase; color:var(--teal); margin-bottom:22px; display:flex; align-items:center; gap:10px; }
+  .eyebrow .orb{ width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,var(--teal),var(--violet)); box-shadow:0 2px 12px rgba(19,168,140,0.5); display:inline-block; }
+  h1.big{ font-family:var(--serif); font-weight:400; font-size:86px; line-height:0.98; letter-spacing:-0.02em; margin:0 0 22px; }
+  h1.big em{ font-style:italic; color:var(--gold); }
+  .lede{ font-size:21px; line-height:1.6; color:var(--fg2); max-width:680px; margin:0; }
+  .meta{ display:flex; flex-wrap:wrap; gap:8px; margin-top:30px; }
+  .chip{ font-family:var(--mono); font-size:11px; letter-spacing:0.04em; text-transform:uppercase; color:var(--fg2); border:1px solid var(--line); border-radius:999px; padding:8px 14px; }
+
+  section{ padding:56px 0; border-top:1px solid var(--sep); }
+  .sec-no{ font-family:var(--mono); font-size:12px; color:var(--fg3); letter-spacing:0.12em; }
+  h2{ font-family:var(--display); font-size:34px; font-weight:700; letter-spacing:-0.02em; margin:8px 0 10px; }
+  h2 + .sub{ color:var(--fg2); font-size:17px; line-height:1.6; max-width:720px; margin:0 0 34px; }
+  h3{ font-family:var(--display); font-size:15px; font-weight:600; margin:0 0 4px; }
+  .overline{ font-family:var(--mono); font-size:10.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--fg3); }
+
+  /* philosophy cards */
+  .grid3{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card{ background:linear-gradient(180deg,var(--card2),var(--card)); border:0.5px solid rgba(255,255,255,0.07); border-radius:18px; padding:22px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 40px -28px rgba(0,0,0,0.9); }
+  .card p{ color:var(--fg2); font-size:14.5px; line-height:1.6; margin:10px 0 0; }
+  .card .ic{ width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; }
+  svg.i{ width:22px; height:22px; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* color */
+  .swatches{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .sw{ border-radius:16px; overflow:hidden; border:0.5px solid var(--sep); }
+  .sw .chip-c{ height:96px; display:flex; align-items:flex-end; padding:12px; }
+  .sw .info{ padding:12px 14px; background:var(--card); }
+  .sw .name{ font-size:13.5px; font-weight:600; }
+  .sw .hex{ font-family:var(--mono); font-size:11.5px; color:var(--fg3); margin-top:2px; }
+  .neutrals{ display:flex; border-radius:14px; overflow:hidden; border:0.5px solid var(--sep); margin-top:14px; }
+  .neutrals div{ flex:1; height:64px; display:flex; align-items:flex-end; justify-content:center; padding-bottom:7px; font-family:var(--mono); font-size:9.5px; color:var(--fg3); }
+
+  /* aspects */
+  .aspects{ display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+  .aspect{ border-radius:16px; padding:18px 14px; background:var(--card); border:0.5px solid var(--sep); text-align:center; }
+  .aspect .dot{ width:34px; height:34px; border-radius:11px; margin:0 auto 11px; display:flex; align-items:center; justify-content:center; }
+  .aspect .l{ font-size:13.5px; font-weight:600; }
+  .aspect .n{ font-family:var(--mono); font-size:10px; color:var(--fg3); margin-top:2px; }
+
+  /* type scale */
+  .typerow{ display:flex; align-items:baseline; gap:20px; padding:16px 0; border-bottom:1px solid var(--sep); }
+  .typerow .label{ width:160px; flex-shrink:0; }
+  .typerow .label .k{ font-size:13px; font-weight:600; }
+  .typerow .label .s{ font-family:var(--mono); font-size:11px; color:var(--fg3); }
+  .typerow .demo{ flex:1; min-width:0; color:var(--fg); }
+
+  /* components */
+  .btn{ border:none; border-radius:13px; font-family:var(--sans); font-size:14.5px; font-weight:600; padding:12px 20px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; }
+  .btn-primary{ background:var(--teal); color:#04130F; }
+  .btn-gold{ background:var(--gold); color:#19120A; }
+  .btn-ghost{ background:transparent; border:1px solid var(--line); color:var(--fg); }
+  .pill{ display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:0.03em; text-transform:uppercase; padding:4px 10px; border-radius:999px; }
+  .seg{ display:inline-flex; background:rgba(150,146,134,0.16); border-radius:10px; padding:3px; }
+  .seg button{ border:none; background:transparent; color:var(--fg2); font-family:var(--sans); font-size:13.5px; font-weight:500; padding:8px 16px; border-radius:8px; cursor:pointer; }
+  .seg button.on{ background:#33373E; color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,0.32), inset 0 0.5px 0 rgba(255,255,255,0.08); font-weight:600; }
+  .progress{ height:6px; border-radius:6px; background:rgba(150,146,134,0.22); overflow:hidden; }
+  .progress div{ height:100%; border-radius:6px; }
+  .ring-demo{ display:flex; gap:28px; align-items:center; flex-wrap:wrap; }
+
+  /* motion */
+  @keyframes breathe{ 0%,100%{ transform:scale(1); opacity:.9; } 50%{ transform:scale(1.12); opacity:1; } }
+  .breath{ width:96px; height:96px; border-radius:50%; background:radial-gradient(circle, rgba(19,168,140,0.5), rgba(19,168,140,0.05) 70%); position:relative; display:flex; align-items:center; justify-content:center; }
+  .breath::before{ content:""; position:absolute; inset:24px; border-radius:50%; background:linear-gradient(135deg,var(--teal),var(--violet)); box-shadow:0 0 30px rgba(19,168,140,0.6); animation:breathe 4.8s ease-in-out infinite; }
+  .press{ transition:transform .16s cubic-bezier(.16,1,.3,1); }
+  .press:active{ transform:scale(0.94); }
+
+  footer{ padding:50px 0 80px; border-top:1px solid var(--sep); color:var(--fg3); font-size:13px; display:flex; align-items:center; gap:12px; }
+  .footmark{ width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,var(--teal),var(--violet)); display:flex; align-items:center; justify-content:center; }
+  @media(max-width:860px){ .grid3,.grid2,.aspects,.swatches{ grid-template-columns:1fr 1fr; } h1.big{ font-size:56px; } .typerow .label{ width:120px; } }
+</style>
+</head>
+<body>
+
+<header class="hero"><div class="wrap">
+  <div class="eyebrow"><span class="orb"></span>Tafakkur Design System · v1</div>
+  <h1 class="big">Fajr<em>.</em></h1>
+  <p class="lede">Tafakkur's own design language — calm, warm and reverent. Rooted in Apple's Human Interface Guidelines, but with a soul of its own: the quiet light of dawn, a single living accent, and space to breathe. Built to be loved daily.</p>
+  <div class="meta">
+    <span class="chip">Apple HIG foundation</span>
+    <span class="chip">Dark · warm midnight</span>
+    <span class="chip">Barakah teal + sacred gold</span>
+    <span class="chip">SF Pro · New York serif</span>
+    <span class="chip">Calm motion</span>
+  </div>
+</div></header>
+
+<!-- PHILOSOPHY -->
+<section><div class="wrap">
+  <div class="sec-no">01 — PRINCIPLES</div>
+  <h2>What Fajr feels like</h2>
+  <p class="sub">A self-development companion is opened in quiet moments — early mornings, between prayers, last thing at night. The system is built for that: nothing shouts, everything settles.</p>
+  <div class="grid3">
+    <div class="card">
+      <div class="ic" style="background:var(--teal-soft)"><svg class="i" stroke="#13A88C" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg></div>
+      <h3 style="margin-top:14px">Calm over loud</h3>
+      <p>One living accent, generous space, soft depth. We express importance through tone and light — never with noise, never with a rainbow of colors.</p>
+    </div>
+    <div class="card">
+      <div class="ic" style="background:var(--gold-soft)"><svg class="i" stroke="#D4A24A" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></div>
+      <h3 style="margin-top:14px">Reverent, not preachy</h3>
+      <p>Spiritual moments get warmth and a serif voice — gold light, a breathing orb, room to reflect. Educational in tone, gentle, never dogmatic.</p>
+    </div>
+    <div class="card">
+      <div class="ic" style="background:rgba(142,121,240,0.16)"><svg class="i" stroke="#8E79F0" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3 3 3 0 0 0-3 3 3 3 0 0 0 0 6 3 3 0 0 0 3 3 3 3 0 0 0 6 0 3 3 0 0 0 3-3 3 3 0 0 0 0-6 3 3 0 0 0-3-3 3 3 0 0 0-3-3z M12 5v14"/></svg></div>
+      <h3 style="margin-top:14px">Intelligence, felt softly</h3>
+      <p>Murabbiy, the AI, appears as a teal-to-violet glow and a breathing orb — present and personal, but private and quiet. On-device by principle.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- COLOR -->
+<section><div class="wrap">
+  <div class="sec-no">02 — COLOR</div>
+  <h2>A single light, a sacred glow</h2>
+  <p class="sub">Barakah teal is the one hero accent — actions, focus, progress, the AI. Sacred gold is reserved for spiritual moments: prayer, reflection, gratitude. Everything else is warm midnight neutral.</p>
+
+  <div class="swatches">
+    <div class="sw"><div class="chip-c" style="background:#13A88C"><span class="pill" style="background:rgba(0,0,0,0.25);color:#fff">Primary</span></div><div class="info"><div class="name">Barakah Teal</div><div class="hex">#13A88C</div></div></div>
+    <div class="sw"><div class="chip-c" style="background:#D4A24A"><span class="pill" style="background:rgba(0,0,0,0.22);color:#fff">Sacred</span></div><div class="info"><div class="name">Sacred Gold</div><div class="hex">#D4A24A</div></div></div>
+    <div class="sw"><div class="chip-c" style="background:#8E79F0"></div><div class="info"><div class="name">Noor Violet</div><div class="hex">#8E79F0</div></div></div>
+    <div class="sw"><div class="chip-c" style="background:#7FB85C"></div><div class="info"><div class="name">Hayat Sage</div><div class="hex">#7FB85C</div></div></div>
+  </div>
+
+  <div class="overline" style="margin:30px 0 0">Warm midnight neutrals · bg0 → card3</div>
+  <div class="neutrals">
+    <div style="background:#080A0A">#080A0A</div>
+    <div style="background:#0D0F11">#0D0F11</div>
+    <div style="background:#16181C">#16181C</div>
+    <div style="background:#1B1E22">#1B1E22</div>
+    <div style="background:#23262B">#23262B</div>
+    <div style="background:#2A2D32">line</div>
+  </div>
+  <p class="sub" style="margin-top:18px">The neutrals carry a faint warm cast — not the cool blue-black of a developer tool. This is the single biggest shift away from generic dark UI: the background should feel like pre-dawn, not a terminal.</p>
+</div></section>
+
+<!-- ASPECTS -->
+<section><div class="wrap">
+  <div class="sec-no">03 — THE FIVE ASPECTS</div>
+  <h2>One color per dimension</h2>
+  <p class="sub">Tafakkur measures life across five aspects. Each owns a calm, distinct hue — used as quiet category markers (dots, icons, rings), never as loud fills. They harmonize with teal rather than compete with it.</p>
+  <div class="aspects">
+    <div class="aspect"><div class="dot" style="background:rgba(216,176,106,0.16)"><svg class="i" stroke="#D8B06A" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></div><div class="l">Spiritual</div><div class="n">Maʼnaviy</div></div>
+    <div class="aspect"><div class="dot" style="background:rgba(168,195,106,0.16)"><svg class="i" stroke="#A8C36A" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><div class="l">Physical</div><div class="n">Jismoniy</div></div>
+    <div class="aspect"><div class="dot" style="background:rgba(167,139,250,0.16)"><svg class="i" stroke="#A78BFA" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div><div class="l">Educational</div><div class="n">Taʼlim</div></div>
+    <div class="aspect"><div class="dot" style="background:rgba(76,194,255,0.16)"><svg class="i" stroke="#4CC2FF" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg></div><div class="l">Social</div><div class="n">Ijtimoiy</div></div>
+    <div class="aspect"><div class="dot" style="background:rgba(224,169,59,0.16)"><svg class="i" stroke="#E0A93B" viewBox="0 0 24 24"><path d="M20 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z M16 13h.01"/></svg></div><div class="l">Financial</div><div class="n">Moliyaviy</div></div>
+  </div>
+</div></section>
+
+<!-- TYPE -->
+<section><div class="wrap">
+  <div class="sec-no">04 — TYPOGRAPHY</div>
+  <h2>System sans, with a soul of serif</h2>
+  <p class="sub">SF Pro for all UI — native, legible, Apple-honest. New York (serif) carries the soul: prayer prompts, reflections, big sacred numbers. SF Mono is reserved for times, percentages and overlines.</p>
+
+  <div class="typerow"><div class="label"><div class="k">Display serif</div><div class="s">New York · 40</div></div><div class="demo serif" style="font-size:40px; line-height:1.1">What are you grateful for?</div></div>
+  <div class="typerow"><div class="label"><div class="k">Large title</div><div class="s">SF Pro · 33 · 700</div></div><div class="demo" style="font-family:var(--display); font-size:33px; font-weight:700; letter-spacing:-0.01em">Today</div></div>
+  <div class="typerow"><div class="label"><div class="k">Title</div><div class="s">SF Pro · 21 · 600</div></div><div class="demo" style="font-family:var(--display); font-size:21px; font-weight:600">Continue learning</div></div>
+  <div class="typerow"><div class="label"><div class="k">Body</div><div class="s">SF Pro · 15 · 400</div></div><div class="demo" style="font-size:15px; color:var(--fg2); line-height:1.5">A clear morning. I moved your lesson before deep work and protected 90 minutes for it.</div></div>
+  <div class="typerow"><div class="label"><div class="k">Overline / mono</div><div class="s">SF Mono · 11 · caps</div></div><div class="demo mono" style="font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--fg3)">Next · Dhuhr — 03:10:24</div></div>
+</div></section>
+
+<!-- COMPONENTS -->
+<section><div class="wrap">
+  <div class="sec-no">05 — COMPONENTS</div>
+  <h2>Soft, tactile, HIG-native</h2>
+  <p class="sub">Inset grouped cards with a whisper of depth, pill tags, segmented controls, progress, and rings. Every control answers touch with a gentle press. Corner radii are generous — 13px controls, 16–18px cards.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="overline">Buttons</div>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px">
+        <button class="btn btn-primary press">Start learning</button>
+        <button class="btn btn-gold press">Begin tafakkur</button>
+        <button class="btn btn-ghost press">Later</button>
+      </div>
+      <div class="overline" style="margin-top:22px">Tags</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px">
+        <span class="pill" style="background:var(--teal-soft); color:var(--teal)">On track</span>
+        <span class="pill" style="background:var(--gold-soft); color:var(--gold)">Sacred</span>
+        <span class="pill" style="background:rgba(127,184,92,0.16); color:var(--sage)">Streak</span>
+        <span class="pill" style="background:rgba(224,96,127,0.16); color:var(--rose)">Liked</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="overline">Segmented control</div>
+      <div style="margin-top:14px"><div class="seg"><button class="on">Chat</button><button>What I remember</button></div></div>
+      <div class="overline" style="margin-top:24px">Progress</div>
+      <div style="margin-top:14px; display:flex; flex-direction:column; gap:12px">
+        <div class="progress"><div style="width:72%; background:var(--teal)"></div></div>
+        <div class="progress"><div style="width:45%; background:var(--gold)"></div></div>
+        <div class="progress"><div style="width:88%; background:var(--sage)"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="overline">Rings — the signature shape</div>
+    <div class="ring-demo" style="margin-top:18px">
+      <!-- prayer ring -->
+      <svg width="120" height="120" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(150,146,134,0.18)" stroke-width="3"/>
+        <path d="M60 10 A50 50 0 0 1 104 84" fill="none" stroke="#ECE8DC" stroke-width="3" stroke-linecap="round"/>
+        <path d="M104 84 A50 50 0 0 1 30 100" fill="none" stroke="#1E8C9A" stroke-width="3.5" stroke-linecap="round"/>
+        <circle cx="104" cy="84" r="5" fill="#D4A24A"/>
+        <text x="60" y="58" text-anchor="middle" fill="#FBFAF7" style="font-family:var(--display); font-size:22px; font-weight:700">3h</text>
+        <text x="60" y="74" text-anchor="middle" fill="rgba(243,239,231,0.36)" style="font-family:var(--mono); font-size:8px; letter-spacing:1px">DHUHR</text>
+      </svg>
+      <!-- activity rings -->
+      <svg width="120" height="120" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(150,146,134,0.14)" stroke-width="9"/>
+        <circle cx="60" cy="60" r="50" fill="none" stroke="#E0607F" stroke-width="9" stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="100" transform="rotate(-90 60 60)"/>
+        <circle cx="60" cy="60" r="38" fill="none" stroke="rgba(150,146,134,0.14)" stroke-width="9"/>
+        <circle cx="60" cy="60" r="38" fill="none" stroke="#7FB85C" stroke-width="9" stroke-linecap="round" stroke-dasharray="239" stroke-dashoffset="60" transform="rotate(-90 60 60)"/>
+      </svg>
+      <!-- breathing orb -->
+      <div class="breath"></div>
+      <div style="flex:1; min-width:180px; color:var(--fg2); font-size:14px; line-height:1.6">Rings carry the brand: the <strong style="color:var(--fg)">prayer ring</strong> maps the day to the sky, <strong style="color:var(--fg)">activity rings</strong> track the body, and the <strong style="color:var(--fg)">breathing orb</strong> is Murabbiy — alive, calm, present.</div>
+    </div>
+  </div>
+</div></section>
+
+<!-- MOTION + ICON -->
+<section><div class="wrap">
+  <div class="sec-no">06 — MOTION &amp; ICONOGRAPHY</div>
+  <h2>Quiet, breathing, tactile</h2>
+  <p class="sub">Motion is gentle and purposeful — a soft <span class="mono" style="font-size:13px">cubic-bezier(.16,1,.3,1)</span> ease, a slow 4.8s breath on the AI orb, and a 0.94 press-scale on every control. No bounces, no spring overshoot, nothing that hurries the user.</p>
+  <div class="grid3">
+    <div class="card">
+      <h3>Press feedback</h3>
+      <p>Every button and card dips slightly under touch — instantly felt, never jarring.</p>
+      <div style="margin-top:16px"><button class="btn btn-primary press">Press me</button></div>
+    </div>
+    <div class="card">
+      <h3>The breath</h3>
+      <p>A 4.8s ease-in-out pulse signals the living AI and reflective focus states.</p>
+      <div style="margin-top:16px; display:flex; justify-content:center"><div class="breath" style="width:80px;height:80px"></div></div>
+    </div>
+    <div class="card">
+      <h3>Iconography</h3>
+      <p>Stroke icons at 1.6–1.8px, rounded joints, drawn warm. Outline only — never filled, never emoji in chrome.</p>
+      <div style="margin-top:16px; display:flex; gap:14px; color:var(--fg2)">
+        <svg class="i" stroke="#13A88C" viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M12 2v6 M4.2 10.2l1.4 1.4 M23 22H1 M8 6l4-4 4 4 M16 18a4 4 0 0 0-8 0"/></svg>
+        <svg class="i" stroke="#D4A24A" viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M11 20A7 7 0 0 1 4 13c0-6 7-11 16-11 0 9-5 16-11 16z M4 21c3-3 6-5 9-6"/></svg>
+        <svg class="i" stroke="#8E79F0" viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10z"/></svg>
+        <svg class="i" stroke="#7FB85C" viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<footer><div class="wrap" style="display:flex; align-items:center; gap:12px">
+  <div class="footmark"><svg class="i" stroke="#fff" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10z"/></svg></div>
+  <span class="mono" style="font-size:12px; color:var(--fg3)">Tafakkur — Fajr Design System · v1 · the visual language behind the prototype</span>
+</div></footer>
+
+</body>
+</html>

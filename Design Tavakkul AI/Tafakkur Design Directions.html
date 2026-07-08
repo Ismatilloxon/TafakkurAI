@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tafakkur — Design Directions</title>
+<style>
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:#17171a; color:#EDEDED; -webkit-font-smoothing:antialiased;
+    font-family:-apple-system,'SF Pro Text','Inter',sans-serif; }
+  .page{ max-width:1280px; margin:0 auto; padding:56px 32px 90px; }
+  .masthead{ margin-bottom:44px; }
+  .masthead .ey{ font-family:'SF Mono',ui-monospace,Menlo,monospace; font-size:12px; letter-spacing:0.2em; text-transform:uppercase; color:#8A8A90; }
+  .masthead h1{ font-size:40px; font-weight:700; letter-spacing:-0.02em; margin:12px 0 10px; }
+  .masthead p{ font-size:17px; line-height:1.6; color:#A4A4AC; max-width:680px; margin:0; }
+
+  .grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:28px; }
+  @media(max-width:1140px){ .grid{ grid-template-columns:repeat(2,1fr); } }
+  @media(max-width:780px){ .grid{ grid-template-columns:1fr; } }
+
+  .opt-head{ display:flex; align-items:baseline; gap:10px; margin-bottom:14px; padding-left:2px; }
+  .opt-head .num{ font-family:'SF Mono',monospace; font-size:12px; color:#6E6E76; }
+  .opt-head .nm{ font-size:18px; font-weight:700; letter-spacing:-0.01em; }
+  .opt-head .cn{ font-size:13px; color:#9A9AA2; }
+
+  /* ── themed preview ── */
+  .preview{ border-radius:26px; padding:20px 18px 18px; border:0.5px solid rgba(255,255,255,0.08);
+    background:var(--bg); color:var(--fg); position:relative; overflow:hidden; box-shadow:0 22px 50px -26px rgba(0,0,0,0.85); }
+  .preview::before{ content:""; position:absolute; top:-70px; left:50%; transform:translateX(-50%);
+    width:300px; height:220px; border-radius:50%; background:radial-gradient(closest-side, var(--glow), transparent 72%); pointer-events:none; }
+  .pv-over{ position:relative; z-index:1; }
+  .ov{ font-family:'SF Mono',ui-monospace,Menlo,monospace; font-size:9.5px; letter-spacing:0.18em; text-transform:uppercase; color:var(--s); }
+  .greet{ font-size:13px; color:var(--fg2); margin-top:4px; }
+
+  .ring-wrap{ display:flex; justify-content:center; margin:10px 0 4px; }
+  .ring-track{ stroke:var(--ringtrack); }
+  .ring-day{ stroke:var(--ringday); }
+  .ring-night{ stroke:var(--p); }
+  .ring-dot{ fill:var(--s); }
+  .ring-c1{ font-family:-apple-system,'SF Pro Display',sans-serif; font-weight:700; }
+  .ring-c2{ font-family:'SF Mono',monospace; letter-spacing:1.5px; }
+
+  .cta{ width:100%; border:none; border-radius:13px; padding:12px; font-size:14px; font-weight:600;
+    font-family:inherit; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:7px;
+    background:var(--p); color:var(--pfg); margin-top:8px; }
+  .aspects{ display:flex; justify-content:space-between; margin:14px 2px 0; }
+  .asp{ display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .asp .d{ width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; }
+  .asp .t{ font-family:'SF Mono',monospace; font-size:8px; color:var(--fg3); letter-spacing:0.04em; }
+  .asp svg{ width:16px; height:16px; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+
+  .mini{ margin-top:14px; border-radius:14px; padding:12px 13px; background:var(--card); border:0.5px solid var(--line);
+    display:flex; gap:10px; align-items:flex-start; }
+  .mini .orb{ width:26px; height:26px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg, var(--p), var(--p2)); }
+  .mini .orb svg{ width:14px; height:14px; fill:none; stroke:#fff; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .mini .mt{ font-size:11.5px; line-height:1.45; color:var(--fg2); }
+  .mini .mt b{ color:var(--fg); font-weight:600; }
+
+  /* palette + type footer */
+  .pal{ display:flex; gap:7px; margin-top:16px; }
+  .pal .s{ flex:1; height:42px; border-radius:9px; border:0.5px solid rgba(255,255,255,0.07); position:relative; }
+  .meta{ display:flex; justify-content:space-between; align-items:center; margin-top:11px; padding:0 2px; }
+  .meta .lab{ font-family:'SF Mono',monospace; font-size:10px; color:#7A7A82; }
+  .tag{ font-family:'SF Mono',monospace; font-size:9px; letter-spacing:0.04em; text-transform:uppercase; padding:3px 7px; border-radius:999px; }
+
+  .note{ margin-top:54px; padding:20px 22px; border:0.5px solid rgba(255,255,255,0.1); border-radius:16px; background:#1d1d20; color:#A4A4AC; font-size:14px; line-height:1.65; }
+  .note b{ color:#EDEDED; }
+
+  /* ───────────── THEME TOKENS ───────────── */
+  .t-fajr{ --bg:#0D0F11; --card:#16181C; --line:rgba(150,146,134,0.16); --fg:#FBFAF7; --fg2:rgba(243,239,231,0.64); --fg3:rgba(243,239,231,0.36);
+    --p:#13A88C; --p2:#8E79F0; --pfg:#04130F; --s:#D4A24A; --glow:rgba(19,168,140,0.18);
+    --ringtrack:rgba(150,146,134,0.18); --ringday:#ECE8DC; }
+  .t-sukut{ --bg:#0B0E16; --card:#141826; --line:rgba(150,160,200,0.16); --fg:#F4F6FB; --fg2:rgba(225,230,245,0.64); --fg3:rgba(225,230,245,0.36);
+    --p:#8AA0E8; --p2:#B98AE0; --pfg:#0B0E16; --s:#E6CCA0; --glow:rgba(138,160,232,0.18);
+    --ringtrack:rgba(160,170,210,0.16); --ringday:#D8DEF2; }
+  .t-noor{ --bg:#F4EEE2; --card:#FFFFFF; --line:rgba(60,50,35,0.12); --fg:#2A2620; --fg2:rgba(42,38,32,0.66); --fg3:rgba(42,38,32,0.4);
+    --p:#1F7A5C; --p2:#3A9E78; --pfg:#FFFFFF; --s:#B0832C; --glow:rgba(31,122,92,0.12);
+    --ringtrack:rgba(60,50,35,0.12); --ringday:#C9A24E; }
+  .t-maghrib{ --bg:#14100D; --card:#1E1712; --line:rgba(190,150,120,0.16); --fg:#FBF4EC; --fg2:rgba(247,235,222,0.64); --fg3:rgba(247,235,222,0.36);
+    --p:#E0794B; --p2:#C25B5B; --pfg:#1A0E07; --s:#E5B452; --glow:rgba(224,121,75,0.2);
+    --ringtrack:rgba(190,150,120,0.16); --ringday:#F0D7BC; }
+  .t-zumurrad{ --bg:#08120E; --card:#0F1C16; --line:rgba(120,170,140,0.16); --fg:#F2F8F4; --fg2:rgba(225,240,230,0.62); --fg3:rgba(225,240,230,0.34);
+    --p:#1FB874; --p2:#9AD46A; --pfg:#03130B; --s:#E5C572; --glow:rgba(31,184,116,0.2);
+    --ringtrack:rgba(120,170,140,0.16); --ringday:#E5C572; }
+  .t-sama{ --bg:#0F1320; --card:#19202F; --line:rgba(150,165,200,0.16); --fg:#F0F3F8; --fg2:rgba(222,230,245,0.62); --fg3:rgba(222,230,245,0.34);
+    --p:#7FC8C0; --p2:#A6A0E0; --pfg:#06201C; --s:#E9C7A0; --glow:rgba(127,200,192,0.18);
+    --ringtrack:rgba(150,165,200,0.16); --ringday:#CBD6EC; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="masthead">
+    <div class="ey">Tafakkur · design exploration</div>
+    <h1>Six directions for the design system</h1>
+    <p>The same home screen — greeting, Salah ring, AI guidance, the five aspects — rendered in six complete color &amp; mood systems. All sit on Apple HIG foundations; they differ in temperature, light, and soul. Compare, then we lock one (or mix — e.g. a palette from one with the serif from another).</p>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="note">
+    <b>How to read these.</b> Each card is a live, themed preview — not a screenshot. <b>Noor</b> is the only light theme (a printed-mushaf / journal feel); the rest are dark with different warmth. <b>Fajr</b> is what's shipping now. Tell me a number — or say "Fajr palette but Maghrib's warmth," "make Noor the default," "darker," "more gold," etc. — and I'll apply it across the whole app and the design-system page.
+  </div>
+</div>
+
+<script>
+  const SPARK = '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10z"/>';
+  const ASPECTS = [
+    { t:'Maʼnav', d:'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z' },
+    { t:'Jismon', d:'M22 12h-4l-3 9L9 3l-3 9H2' },
+    { t:'Taʼlim', d:'M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z' },
+    { t:'Ijtim',  d:'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
+    { t:'Moliya', d:'M20 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z M16 13h.01' },
+  ];
+  const ASP_COLORS = {
+    fajr:    ['#D8B06A','#A8C36A','#A78BFA','#4CC2FF','#E0A93B'],
+    sukut:   ['#E6CCA0','#9FD0B0','#B98AE0','#8AA0E8','#E0B98A'],
+    noor:    ['#B0832C','#5E924B','#7B5EA8','#3D7CA8','#C08A3A'],
+    maghrib: ['#E5B452','#C9A24E','#C28BA0','#D98B6B','#E0A93B'],
+    zumurrad:['#E5C572','#7FB85C','#9AD46A','#5FC2C0','#E0B24E'],
+    sama:    ['#E9C7A0','#9ED0A0','#A6A0E0','#7FC8C0','#E0BE9A'],
+  };
+  const THEMES = [
+    { k:'fajr',     nm:'Fajr',     cn:'Warm dawn · shipping now', type:'SF Pro + New York serif', tag:'Current', greetOv:'Bismillah.', greet:'Xayrli tong, Aziz · Tashkent' },
+    { k:'sukut',    nm:'Sukut',    cn:'Moonlit night · calm', type:'SF Pro light · serif accents', tag:'Cool', greetOv:'Bismillah.', greet:'Tungi sukunat · Tashkent' },
+    { k:'noor',     nm:'Noor',     cn:'Light · printed-mushaf', type:'New York serif · ink', tag:'Light', greetOv:'Bismillah.', greet:'Xayrli tong, Aziz · Tashkent' },
+    { k:'maghrib',  nm:'Maghrib',  cn:'Sunset earth · cozy', type:'SF Pro rounded warmth', tag:'Warm', greetOv:'Bismillah.', greet:'Shom yaqin · Tashkent' },
+    { k:'zumurrad', nm:'Zumurrad', cn:'Emerald luxe · premium', type:'SF Pro + serif · gilt', tag:'Luxe', greetOv:'Bismillah.', greet:'Xayrli tong, Aziz · Tashkent' },
+    { k:'sama',     nm:'Sama',     cn:'Soft sky · airy modern', type:'SF Pro · airy light', tag:'Airy', greetOv:'Bismillah.', greet:'Osmon tiniq · Tashkent' },
+  ];
+
+  function ringSVG(){
+    const r=70, C=2*Math.PI*r, off=C*0.38;
+    const ang=(-90+0.62*360)*Math.PI/180, dx=100+r*Math.cos(ang), dy=100+r*Math.sin(ang);
+    return `<svg width="168" height="168" viewBox="0 0 200 200">
+      <circle class="ring-track" cx="100" cy="100" r="${r}" fill="none" stroke-width="3"/>
+      <circle class="ring-day" cx="100" cy="100" r="${r}" fill="none" stroke-width="3" stroke-linecap="round"
+        stroke-dasharray="${C}" stroke-dashoffset="${C*0.55}" transform="rotate(-90 100 100)"/>
+      <circle class="ring-night" cx="100" cy="100" r="${r}" fill="none" stroke-width="3.6" stroke-linecap="round"
+        stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(133 100 100)"/>
+      <circle class="ring-dot" cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="5"/>
+      <text class="ring-c2" x="100" y="86" text-anchor="middle" font-size="9" fill="var(--fg3)">NEXT · DHUHR</text>
+      <text class="ring-c1" x="100" y="112" text-anchor="middle" font-size="30" fill="var(--fg)">3h 10m</text>
+      <text class="ring-c2" x="100" y="128" text-anchor="middle" font-size="8.5" fill="var(--fg3)">AT 12:51</text>
+    </svg>`;
+  }
+  const isLight = k => k==='noor';
+
+  const grid = document.getElementById('grid');
+  THEMES.forEach((t,i)=>{
+    const cols = ASP_COLORS[t.k];
+    const aspHTML = ASPECTS.map((a,j)=>`
+      <div class="asp">
+        <div class="d" style="background:${cols[j]}22"><svg stroke="${cols[j]}">${a.d.split(' M').map((p,idx)=>`<path d="${idx===0?'':'M'}${p}"/>`).join('')}</svg></div>
+        <div class="t">${a.t}</div>
+      </div>`).join('');
+    const palKeys=['--bg','--card','--p','--s'];
+    const palHTML = palKeys.map(v=>`<div class="s" style="background:var(${v})"></div>`).join('');
+
+    const card = document.createElement('div');
+    card.innerHTML = `
+      <div class="opt-head">
+        <span class="num">0${i+1}</span>
+        <span class="nm">${t.nm}</span>
+        <span class="cn">${t.cn}</span>
+      </div>
+      <div class="preview t-${t.k}">
+        <div class="pv-over">
+          <div class="ov">${t.greetOv}</div>
+          <div class="greet">${t.greet}</div>
+          <div class="ring-wrap">${ringSVG()}</div>
+          <button class="cta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--pfg)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${SPARK}</svg> Talk to Murabbiy</button>
+          <div class="aspects">${aspHTML}</div>
+          <div class="mini">
+            <div class="orb"><svg viewBox="0 0 24 24">${SPARK}</svg></div>
+            <div class="mt"><b>Murabbiy</b> · A clear morning. I protected 90 minutes for your lesson before deep work.</div>
+          </div>
+          <div class="pal">${palHTML}</div>
+          <div class="meta">
+            <span class="lab">${t.type}</span>
+            <span class="tag" style="background:var(--s); color:var(--bg)">${t.tag}</span>
+          </div>
+        </div>
+      </div>`;
+    // append the head + preview (two children) wrapped
+    const frag = document.createElement('div');
+    frag.appendChild(card.children[0]);
+    frag.appendChild(card.children[0]);
+    grid.appendChild(frag);
+  });
+</script>
+</body>
+</html>

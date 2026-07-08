@@ -1,0 +1,198 @@
+You are a Senior Go Backend Engineer. Build the backend for "TafakkurAI",
+a Kotlin Multiplatform (Compose) Android+iOS app — an Islamic reflection +
+personal-growth app. The mobile client talks to you over HTTPS/JSON using a
+Ktor client. Build a production-grade Go service.
+
+# ARCHITECTURE DECISION: MODULAR MONOLITH (required)
+Build a SINGLE deployable Go binary structured as a modular monolith — NOT
+microservices. Rationale: small team, one mobile client, MVP stage;
+microservices would add deployment, networking, and debugging overhead with
+no benefit yet. Enforce clean domain boundaries via internal/<domain>
+packages so any package (e.g. coach or feed) can later be extracted into its
+own service WITHOUT a rewrite. Rules:
+- One process, one binary, one Postgres database.
+- Each domain package exposes a service interface; other packages depend on
+  that interface, never on another domain's repo or SQL directly.
+- No cross-domain database joins across bounded contexts; go through the
+  owning service. This keeps a future split cheap.
+- Only extract a service when a real pressure appears (e.g. AI coach traffic
+  needs independent scaling). Start monolith.
+
+# PRODUCT CONTEXT
+TafakkurAI helps a Muslim user structure their day around Salah and self-growth.
+Client features that need backend support:
+- Onboarding: collect personal data (name, gender, birth date, language),
+  interests (multi-select), and prayer settings (city, country, madhab,
+  calculation method).
+- Auth: Google, Apple, and phone-number (OTP) sign-in. First-time users go
+  through onboarding then register; returning users go straight to Home.
+- Today screen: prayer-time progress ("time until next prayer"), a greeting,
+  and customizable module blocks.
+- AI Coach ("Murabbiy"): chat with a gentle Islamic-reflection LLM assistant.
+- Thoughts: a social feed — users publish short posts, view a feed, like.
+- Learning: subjects + lessons content.
+- Modules/trackers: prayer tracker, tafakkur journal, gratitude, quran/dhikr,
+  sleep, sport/gym, focus, productivity, finance, career.
+- Profile: avatar/photo upload, stats (streak, level, XP).
+- Gamification: daily streak, level, XP.
+
+# TECH STACK (use exactly this unless you justify otherwise)
+- Go 1.23+, modules.
+- HTTP router: chi (github.com/go-chi/chi/v5). Idiomatic net/http handlers.
+- DB: PostgreSQL 16. Access via pgx (jackc/pgx v5) + sqlc for typed queries.
+- Migrations: golang-migrate (SQL files in /migrations).
+- Auth tokens: issue your own short-lived JWT access token + refresh token
+  (golang-jwt/jwt v5) AFTER verifying the provider identity (see AUTH).
+- Config: env vars via a typed Config struct (caarlos0/env or stdlib).
+- Logging: log/slog (structured JSON).
+- Validation: go-playground/validator on request DTOs.
+- Object storage: S3-compatible (AWS SDK v2, works with MinIO in dev) for
+  profile images.
+- AI: Anthropic Claude via net/http (streaming SSE). Key server-side only.
+- Tests: standard testing + testcontainers-go (real Postgres) for repo/integration.
+
+# PROJECT LAYOUT (modular monolith)
+cmd/api/main.go               single entrypoint, wires all modules
+internal/
+  config/        typed env config
+  server/        chi router, middleware, route registration for all modules
+  auth/          provider verification (google/apple/phone), JWT issue/verify
+  user/          user + profile + interests domain, service, repo, handlers
+  prayer/        prayer-time calc + tracker
+  feed/          thoughts (posts, feed, likes)
+  coach/         Claude proxy, conversation persistence, streaming
+  learn/         subjects + lessons
+  tracker/       journal/gratitude/quran/sleep/sport/focus generic entries
+  gamify/        streak/level/xp engine
+  media/         image upload to object storage
+  platform/      db pool, migrations runner, s3 client, http helpers
+migrations/*.sql
+Makefile, Dockerfile, docker-compose.yml (postgres + minio)
+Each internal/<domain> exposes Service (interface) + impl + repo + handlers.
+server/ mounts each module's routes. main.go constructs one DB pool and
+injects it; modules never reach into each other's repos.
+
+# DATA MODEL (write as migrations)
+users(id uuid pk, provider text, email text null, phone text null,
+      created_at, updated_at)
+profiles(user_id uuid pk fk users, display_name text, handle text unique,
+         gender text, birth_date date null, language text default 'en',
+         city text null, country text null, madhab text, calc_method text,
+         photo_url text null, onboarding_done bool default false,
+         created_at, updated_at)
+user_interests(user_id uuid fk, interest text, primary key(user_id,interest))
+thoughts(id uuid pk, user_id uuid fk, text text, like_count int default 0,
+         created_at)
+thought_likes(thought_id uuid fk, user_id uuid fk, primary key(...))
+coach_conversations(id uuid pk, user_id uuid fk, created_at)
+coach_messages(id uuid pk, conversation_id uuid fk, role text, content text,
+               created_at)
+subjects(id uuid pk, title, description, order_index)
+lessons(id uuid pk, subject_id uuid fk, title, body, order_index)
+tracker_entries(id uuid pk, user_id uuid fk, kind text, -- prayer|journal|
+                gratitude|quran|sleep|sport|focus
+                payload jsonb, entry_date date, created_at)
+gamification(user_id uuid pk fk, streak int, level int, xp int,
+             xp_next int, last_active_date date)
+otp_challenges(id uuid pk, phone text, code_hash text, expires_at,
+               attempts int) -- if you implement phone OTP yourself
+
+# AUTH (critical — get this right)
+Endpoint: POST /v1/auth/session
+Body: { provider: "google"|"apple"|"phone", idToken?, phone?, otpCode?,
+        verificationId? }
+Flow:
+- google: verify the Google ID token (validate signature via Google JWKS,
+  aud = your client id, exp). Extract sub/email/name/picture.
+- apple: verify Apple identity token against Apple JWKS, aud = your bundle id.
+- phone: two-step —
+    POST /v1/auth/otp/start { phone } -> create otp_challenge, send SMS via
+      Twilio/provider, return { verificationId }.
+    POST /v1/auth/session provider=phone { verificationId, otpCode } -> verify
+      hash + expiry + attempts.
+- Upsert users + profiles by provider identity. If profile is new,
+  onboarding_done=false.
+- Return { accessToken (JWT ~15m), refreshToken (~30d), user, needsOnboarding }.
+POST /v1/auth/refresh { refreshToken } -> new access token.
+All /v1/** except auth require "Authorization: Bearer <accessToken>";
+middleware validates JWT and injects userID into context.
+
+# API SURFACE (REST, JSON, all under /v1)
+Auth:      POST /auth/session, /auth/otp/start, /auth/refresh, /auth/logout
+Profile:   GET /me                      -> user+profile+interests+gamification
+           PUT /me/profile              -> update personal data
+           PUT /me/interests            -> replace interest set
+           PUT /me/prayer-settings      -> city/country/madhab/calc_method
+           POST /me/onboarding/complete -> set onboarding_done=true
+           POST /me/photo               -> multipart image; store to S3;
+                                           set photo_url; return {url}
+Prayer:    GET /prayer/times?date=&lat=&lng= (or city) -> 5 daily times + next
+           POST /prayer/track           -> mark a prayer prayed
+Coach:     POST /coach/message          -> SSE stream Claude reply; persist both
+           GET  /coach/history          -> conversation messages (paginated)
+Feed:      GET /thoughts?cursor=        -> paginated feed (newest first)
+           POST /thoughts               -> publish { text }
+           POST /thoughts/{id}/like     -> toggle like
+Learn:     GET /subjects, GET /subjects/{id}/lessons, GET /lessons/{id}
+Trackers:  POST /trackers/{kind}        -> create entry (jsonb payload)
+           GET  /trackers/{kind}?from=&to=
+Gamify:    handled server-side: any qualifying action (track prayer, publish,
+           finish lesson) calls gamify.Award(userID, event) which updates
+           streak/xp/level; expose GET /me already returns current values.
+
+# PRAYER TIMES
+Implement or wrap a prayer-time calculation (astronomical) taking lat/lng,
+date, madhab (Asr shadow factor: Hanafi=2, others=1) and calc_method
+(MWL/ISNA/Egypt/Makkah/Karachi/Tehran fajr/isha angles). Return
+Fajr,Dhuhr,Asr,Maghrib,Isha as RFC3339 local times + the "next prayer" and
+seconds remaining, so the client's progress ring can render. Prefer a
+well-tested Go lib if available; otherwise implement the standard algorithm
+and unit-test against known values for Tashkent.
+
+# AI COACH (Murabbiy)
+POST /coach/message streams from Claude. Key from env ANTHROPIC_API_KEY,
+never exposed. Use model "claude-sonnet-5" for chat (fast, cheap); allow an
+env override for a deeper model. System prompt: a warm, respectful Islamic
+reflection coach ("Murabbiy") that encourages salah, gratitude, and tafakkur,
+never issues fatwas, defers scholarly rulings. Persist user + assistant
+messages to coach_messages. Stream tokens to the client as Server-Sent Events.
+Apply per-user rate limiting.
+
+# CROSS-CUTTING REQUIREMENTS
+- Consistent error envelope: { error: { code, message } }, correct HTTP codes.
+- Request validation on every DTO; reject unknown/invalid input.
+- Cursor pagination for feeds/history.
+- Per-user + per-IP rate limiting (token bucket) on auth, coach, posting.
+- CORS + security headers; TLS-terminated behind proxy.
+- Idempotent upserts on auth.
+- DB access through repositories; no SQL in handlers.
+- slog structured logging with request IDs; basic /healthz and /readyz.
+- Graceful shutdown (context cancellation, drain).
+- Config via env; provide .env.example.
+- Dockerfile (multi-stage, distroless) + docker-compose (api+postgres+minio).
+- Makefile: run, migrate, sqlc, test, lint.
+- Tests: unit for gamify + prayer calc; integration (testcontainers Postgres)
+  for auth upsert, profile update, feed, coach persistence.
+
+# CLIENT CONTRACT NOTE
+The KMP app uses a Ktor client with kotlinx.serialization. Keep JSON field
+names snake_case OR configure accordingly; return stable DTOs. The app models
+include: UserProfile(uid, displayName, email, phone, photoUrl, provider,
+gender, birthDate, city, country, languageTag, madhab, calcMethod, interests,
+onboardingComplete) and a "thoughts" SocialPost feed. Match these shapes.
+
+# DELIVERABLES
+1. Compiling Go module (single binary, modular-monolith layout above).
+2. All migrations + sqlc-generated queries.
+3. All endpoints implemented with auth middleware.
+4. Working Claude streaming proxy.
+5. docker-compose up brings up api+db+minio; make migrate seeds subjects/lessons.
+6. README: setup, env vars, running, the full API reference, AND a short
+   "How to split a module into a microservice later" note reflecting the
+   modular-monolith boundaries.
+7. Tests passing.
+
+Start by scaffolding the module, config, db pool, migrations, and the auth
+flow (google/apple/phone -> JWT). Then profile+onboarding, then feed, then
+coach streaming, then prayer times, then gamification and trackers. Ask me
+for any provider client IDs / secrets you need as env vars; stub them clearly.

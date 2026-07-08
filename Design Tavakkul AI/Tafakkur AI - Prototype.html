@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tafakkur AI — Prototype</title>
+<link rel="stylesheet" href="assets/colors_and_type.css"/>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; min-height:100vh; -webkit-font-smoothing:antialiased; }
+  body {
+    background: radial-gradient(ellipse 80% 50% at 50% -10%, #15203a 0%, #0a0d14 55%), #07090D;
+    background-attachment: fixed;
+    min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    padding: 28px 16px;
+    font-family: -apple-system, system-ui, sans-serif;
+  }
+  .tf-phone {
+    width: 393px; height: 852px;
+    border-radius: 54px;
+    background: radial-gradient(135% 80% at 50% -6%, #14130f 0%, #0a0a08 58%), #0D0F11;
+    border: 11px solid #15161a;
+    box-shadow: 0 44px 100px -24px rgba(0,0,0,0.72), inset 0 0 0 2px #2a2c30, 0 0 0 1px rgba(255,255,255,0.04);
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+  }
+  /* breathing motif */
+  @keyframes tf-breathe { 0%,100% { transform: scale(1); opacity: .92; } 50% { transform: scale(1.1); opacity: 1; } }
+  .tf-breathe { animation: tf-breathe 4.8s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .tf-breathe { animation: none; } }
+  /* scrollbars hidden inside the phone for a native feel */
+  .tf-phone ::-webkit-scrollbar { width: 0; height: 0; }
+  .tf-phone * { scrollbar-width: none; }
+  ::selection { background: rgba(61,123,255,0.3); }
+
+  /* ── Tactile feedback — every control responds to touch ── */
+  .tf-phone button { -webkit-tap-highlight-color: transparent; transition: transform .16s cubic-bezier(.16,1,.3,1), filter .16s ease, background-color .16s ease, opacity .16s ease, box-shadow .16s ease; }
+  .tf-phone button:active { transform: scale(0.94); }
+  .tf-phone div[style*="cursor: pointer"]:active { transform: scale(0.985); transition: transform .16s cubic-bezier(.16,1,.3,1); }
+  .tf-phone input, .tf-phone textarea { caret-color: #13A88C; }
+
+  /* ── Screen entrance — kept subtle; resting state is always correct ── */
+  @keyframes tf-rise { from { transform: translateY(16px); } to { transform: none; } }
+  .tf-screen { height: 100%; }
+  .tf-tab-ind { transition: transform .36s cubic-bezier(.34,1.4,.5,1), opacity .26s ease, background-color .2s ease; }
+  @media (prefers-reduced-motion: reduce) { .tf-screen { animation: none; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<template id="__bundler_thumbnail">
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" rx="22" fill="#0D0F11"/>
+    <circle cx="50" cy="50" r="26" fill="none" stroke="#13A88C" stroke-width="2.5" opacity="0.5"/>
+    <circle cx="50" cy="50" r="15" fill="url(#g)"/>
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#13A88C"/><stop offset="1" stop-color="#8E79F0"/></linearGradient></defs>
+  </svg>
+</template>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- data (plain JS) -->
+<script src="app/data.js"></script>
+<!-- shared helpers from Zukko kit (Avatar etc.) -->
+<script type="text/babel" src="app/shared.jsx"></script>
+<!-- kit + screens -->
+<script type="text/babel" src="app/kit.jsx"></script>
+<script type="text/babel" src="app/tweaks-panel.jsx"></script>
+<script type="text/babel" src="app/today.jsx"></script>
+<script type="text/babel" src="app/learn.jsx"></script>
+<script type="text/babel" src="app/productivity.jsx"></script>
+<script type="text/babel" src="app/reflect.jsx"></script>
+<script type="text/babel" src="app/more.jsx"></script>
+<script type="text/babel" src="app/spiritual.jsx"></script>
+<script type="text/babel" src="app/physical.jsx"></script>
+<script type="text/babel" src="app/focus.jsx"></script>
+<script type="text/babel" src="app/appearance.jsx"></script>
+<script type="text/babel" src="app/app.jsx"></script>
+</body>
+</html>
