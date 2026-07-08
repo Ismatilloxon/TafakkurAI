@@ -18,6 +18,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.*
 import com.example.tafakkurai.ui.*
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.koin.mp.KoinPlatform.getKoin
+import uz.tafakkur.domain.usecase.CreateTrackerEntryUseCase
 import kotlin.math.roundToInt
 
 // ── Sleep & rest ─────────────────────────────────────────────────────────────
@@ -209,6 +214,8 @@ private fun StepBtn(icon: String, onClick: () -> Unit, minus: Boolean) {
 @Composable
 private fun ColumnScope.SportDashboard(weight: Int, goal: Int) {
     val c = LocalTf.current
+    val scope = rememberCoroutineScope()
+    val createEntry = remember { getKoin().get<CreateTrackerEntryUseCase>() }
     val activities = remember { mutableStateListOf<SportActivity>().apply { addAll(TSPORT_DEFAULT.activities) } }
     val week = remember { mutableStateListOf<Int>().apply { addAll(TSPORT_DEFAULT.weekMin) } }
     var adding by remember { mutableStateOf(false) }
@@ -295,6 +302,7 @@ private fun ColumnScope.SportDashboard(weight: Int, goal: Int) {
                         activities.add(SportActivity("a${activities.size + 1}", t.key, t.name, t.icon, t.color, dur, computed, "now"))
                         week[6] = week[6] + dur
                         adding = false
+                        scope.launch { runCatching { createEntry("sport", buildJsonObject { put("type", t.key); put("minutes", dur); put("kcal", computed) }.toString()) } }
                     }, 0.96f)).padding(horizontal = 18.dp, vertical = 12.dp)) {
                         TfText("Log", color = Color.White, size = 14.5f, weight = FontWeight.SemiBold)
                     }

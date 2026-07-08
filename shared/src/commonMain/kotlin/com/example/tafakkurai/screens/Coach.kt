@@ -17,6 +17,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.*
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.vm.CoachViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.koin.mp.KoinPlatform.getKoin
 import kotlinx.coroutines.launch
 
 @Composable
@@ -45,20 +48,19 @@ fun CoachScreen(onBack: () -> Unit) {
 
 @Composable
 private fun ColumnScope.ChatTab() {
-    val scope = rememberCoroutineScope()
-    val chat = remember { ChatState() }
+    val vm: CoachViewModel = viewModel { CoachViewModel(getKoin().get()) }
     val listState = rememberLazyListState()
-    LaunchedEffect(chat.messages.size) {
-        if (chat.messages.isNotEmpty()) listState.animateScrollToItem(chat.messages.size - 1)
+    LaunchedEffect(vm.messages.size, vm.messages.lastOrNull()?.text) {
+        if (vm.messages.isNotEmpty()) listState.animateScrollToItem(vm.messages.size - 1)
     }
     LazyColumn(
         state = listState,
         modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = HPAD.dp),
         contentPadding = PaddingValues(vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) { items(chat.messages) { ChatBubble(it) } }
-    SuggestRow { s -> scope.launch { chat.send(s) { if (chat.messages.isNotEmpty()) listState.animateScrollToItem(chat.messages.size - 1) } } }
-    ChatInput(chat.draft, { chat.draft = it }, { scope.launch { chat.send() { if (chat.messages.isNotEmpty()) listState.animateScrollToItem(chat.messages.size - 1) } } })
+    ) { items(vm.messages) { ChatBubble(it) } }
+    SuggestRow { s -> vm.send(s) }
+    ChatInput(vm.draft, { vm.draft = it }, { vm.send() })
 }
 
 @Composable

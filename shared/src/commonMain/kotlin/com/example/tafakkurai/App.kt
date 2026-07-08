@@ -8,6 +8,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.example.tafakkurai.screens.*
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.vm.ThoughtsViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.koin.mp.KoinPlatform.getKoin
 
 /** Tab roots that show the bottom tab bar. */
 private val TAB_ROOTS = listOf("today", "learn", "do", "thoughts", "more")
@@ -33,7 +36,7 @@ fun App() {
     // navigation stack
     val nav = remember { mutableStateListOf("today") }
     var sheetOpen by remember { mutableStateOf(false) }
-    val thoughts = remember { mutableStateListOf<SocialPost>().apply { addAll(TSOCIAL) } }
+    val thoughtsVm: ThoughtsViewModel = viewModel { ThoughtsViewModel(getKoin().get(), getKoin().get(), getKoin().get()) }
 
     // reset root when nav mode flips
     LaunchedEffect(tweaks.nav) {
@@ -80,13 +83,14 @@ fun App() {
                             ScreenHost(
                                 route = route,
                                 tweaks = tweaks,
-                                thoughts = thoughts,
+                                thoughts = thoughtsVm.posts,
                                 onTab = ::setTab,
                                 onPush = ::push,
                                 onPop = ::pop,
                                 onOpenModule = ::openModule,
                                 onOpenByModule = ::openByModuleName,
-                                onPublish = { post -> thoughts.add(0, post); pop() },
+                                onPublish = { post -> thoughtsVm.publish(post.text); pop() },
+                                onLike = thoughtsVm::like,
                             )
                         }
                     }
@@ -116,6 +120,7 @@ private fun ScreenHost(
     onOpenModule: (String) -> Unit,
     onOpenByModule: (String) -> Unit,
     onPublish: (SocialPost) -> Unit,
+    onLike: (String) -> Unit,
 ) {
     when (route) {
         "today" -> TodayScreen(onOpenModule = onOpenByModule, onCoach = { onPush("coach") }, onProfile = { onPush("profile") })
@@ -123,7 +128,7 @@ private fun ScreenHost(
         "profile" -> ProfileScreen(onBack = onPop)
         "learn" -> LearnScreen(onLesson = { onPush("lesson") }, onSubject = { onPush("subject:${it.id}") })
         "do" -> ProductivityScreen()
-        "thoughts" -> ThoughtsScreen(posts = thoughts, onCompose = { onPush("compose") })
+        "thoughts" -> ThoughtsScreen(posts = thoughts, onCompose = { onPush("compose") }, onLike = onLike)
         "compose" -> ComposeThoughtScreen(onBack = onPop, onPublish = onPublish)
         "more" -> MoreScreen(onOpen = onOpenModule)
         "coach" -> CoachScreen(onBack = onPop)

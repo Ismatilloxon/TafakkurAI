@@ -15,10 +15,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.*
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.vm.LearnViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.koin.mp.KoinPlatform.getKoin
 
 @Composable
 fun LearnScreen(onLesson: () -> Unit, onSubject: (Subject) -> Unit) {
     val c = LocalTf.current
+    val vm: LearnViewModel = viewModel { LearnViewModel(getKoin().get()) }
     Column(Modifier.fillMaxSize()) {
         LargeTitle("Learn · Taʼlim")
         ScrollBody {
@@ -43,7 +47,7 @@ fun LearnScreen(onLesson: () -> Unit, onSubject: (Subject) -> Unit) {
             }
             SectionTitle("Subjects")
             Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                TSUBJECTS.forEach { s -> SubjectRow(s) { onSubject(s) } }
+                vm.subjects.forEach { s -> SubjectRow(s) { onSubject(s) } }
                 AddDashed("Add a subject")
             }
         }

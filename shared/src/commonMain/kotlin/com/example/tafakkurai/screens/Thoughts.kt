@@ -22,7 +22,7 @@ import com.example.tafakkurai.*
 import com.example.tafakkurai.ui.*
 
 @Composable
-fun ThoughtsScreen(posts: List<SocialPost>, onCompose: () -> Unit) {
+fun ThoughtsScreen(posts: List<SocialPost>, onCompose: () -> Unit, onLike: (String) -> Unit = {}) {
     val c = LocalTf.current
     Column(Modifier.fillMaxSize()) {
         LargeTitle("Thoughts", right = {
@@ -56,14 +56,14 @@ fun ThoughtsScreen(posts: List<SocialPost>, onCompose: () -> Unit) {
             }
             // feed
             Column(Modifier.padding(horizontal = HPAD.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                posts.forEach { p -> PostCard(p) }
+                posts.forEach { p -> PostCard(p, onLike) }
             }
         }
     }
 }
 
 @Composable
-private fun PostCard(p: SocialPost) {
+private fun PostCard(p: SocialPost, onLike: (String) -> Unit = {}) {
     val c = LocalTf.current
     var liked by remember { mutableStateOf(false) }
     var bookmarked by remember { mutableStateOf(false) }
@@ -81,7 +81,7 @@ private fun PostCard(p: SocialPost) {
         }
         TfText(p.text, color = c.fg, size = 14.5f, lineHeight = 1.6f, modifier = Modifier.padding(top = 11.dp))
         Row(Modifier.fillMaxWidth().padding(top = 13.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            ActionStat("heart", if (liked) p.likes + 1 else p.likes, if (liked) c.rose else c.fg3) { liked = !liked }
+            ActionStat("heart", if (liked) p.likes + 1 else p.likes, if (liked) c.rose else c.fg3) { liked = !liked; onLike(p.id) }
             ActionStat("messageCircle", p.comments, c.fg3) {}
             Spacer(Modifier.weight(1f))
             Box(Modifier.then(pressScale({ bookmarked = !bookmarked }, 0.9f))) {

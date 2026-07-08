@@ -19,6 +19,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.tafakkurai.*
 import com.example.tafakkurai.ui.*
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.koin.mp.KoinPlatform.getKoin
+import uz.tafakkur.domain.usecase.CreateTrackerEntryUseCase
+import uz.tafakkur.domain.usecase.TrackPrayerUseCase
 
 // ── Prayer tracker ───────────────────────────────────────────────────────────
 private val PRAYER_CYCLE = listOf("upcoming", "ontime", "jamaat")
@@ -26,6 +32,8 @@ private val PRAYER_CYCLE = listOf("upcoming", "ontime", "jamaat")
 @Composable
 fun PrayerTrackerScreen(onBack: () -> Unit) {
     val c = LocalTf.current
+    val scope = rememberCoroutineScope()
+    val trackPrayer = remember { getKoin().get<TrackPrayerUseCase>() }
     val states = remember { mutableStateListOf<PrayerToday>().apply { addAll(TPRAYER_TODAY) } }
     val prayed = states.count { it.state != "upcoming" }
     Column(Modifier.fillMaxSize()) {
@@ -66,7 +74,7 @@ fun PrayerTrackerScreen(onBack: () -> Unit) {
                             val nextState = PRAYER_CYCLE[(PRAYER_CYCLE.indexOf(p.state).coerceAtLeast(0) + 1) % PRAYER_CYCLE.size]
                             Box(
                                 Modifier.clip(RoundedCornerShape(999.dp)).background(meta.color.soft(0.16f))
-                                    .then(pressScale({ states[i] = p.copy(state = nextState) }, 0.94f))
+                                    .then(pressScale({ states[i] = p.copy(state = nextState); scope.launch { runCatching { trackPrayer(p.name.lowercase()) } } }, 0.94f))
                                     .padding(horizontal = 13.dp, vertical = 7.dp),
                             ) { TfText(if (p.state == "upcoming") "Log" else meta.label, color = meta.color, size = 13f, weight = FontWeight.SemiBold) }
                         }
@@ -88,6 +96,8 @@ private val JOURNAL_MOODS = listOf("Calm", "Grateful", "Hopeful", "Tested")
 @Composable
 fun TafakkurJournalScreen(onBack: () -> Unit) {
     val c = LocalTf.current
+    val scope = rememberCoroutineScope()
+    val createEntry = remember { getKoin().get<CreateTrackerEntryUseCase>() }
     var promptIdx by remember { mutableStateOf(0) }
     var mood by remember { mutableStateOf("Calm") }
     var entry by remember { mutableStateOf("") }
@@ -133,7 +143,11 @@ fun TafakkurJournalScreen(onBack: () -> Unit) {
                     Box(Modifier.size(44.dp).clip(CircleShape).background(c.card3).then(pressScale({}, 0.9f)), contentAlignment = Alignment.Center) {
                         TfIcon("mic", size = 19, color = c.fg2)
                     }
-                    Box(Modifier.weight(1f)) { PrimaryButton("Save entry") { entry = "" } }
+                    Box(Modifier.weight(1f)) { PrimaryButton("Save entry") {
+                        val text = entry.trim()
+                        if (text.isNotEmpty()) scope.launch { runCatching { createEntry("journal", buildJsonObject { put("mood", mood); put("prompt", TPROMPTS[promptIdx]); put("text", text) }.toString()) } }
+                        entry = ""
+                    } }
                 }
             }
             ProactiveCard("Yesterday you wrote about patience in a code review. A gentle practice today: pause for one breath before you reply to anything.", modifier = Modifier.padding(horizontal = HPAD.dp))
@@ -167,6 +181,8 @@ private fun JournalCard(j: JournalEntry) {
 @Composable
 fun GratitudeScreen(onBack: () -> Unit) {
     val c = LocalTf.current
+    val scope = rememberCoroutineScope()
+    val createEntry = remember { getKoin().get<CreateTrackerEntryUseCase>() }
     val items = remember { mutableStateListOf<String>().apply { addAll(TGRATITUDE_TODAY) } }
     var draft by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
@@ -198,7 +214,7 @@ fun GratitudeScreen(onBack: () -> Unit) {
                                 cursorBrush = SolidColor(c.accent), modifier = Modifier.fillMaxWidth(),
                             )
                         }
-                        Box(Modifier.size(32.dp).clip(CircleShape).background(c.green).then(pressScale({ if (draft.isNotBlank()) { items.add(draft.trim()); draft = "" } }, 0.9f)), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(32.dp).clip(CircleShape).background(c.green).then(pressScale({ if (draft.isNotBlank()) { val g = draft.trim(); items.add(g); draft = ""; scope.launch { runCatching { createEntry("gratitude", buildJsonObject { put("item", g) }.toString()) } } } }, 0.9f)), contentAlignment = Alignment.Center) {
                             TfIcon("plus", size = 17, color = Color.White)
                         }
                     }

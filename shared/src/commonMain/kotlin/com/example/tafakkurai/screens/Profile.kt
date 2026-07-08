@@ -9,14 +9,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.*
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.vm.ProfileViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.koin.mp.KoinPlatform.getKoin
 
 /** Profile page — opened from the Today/Hub header avatar. */
 @Composable
 fun ProfileScreen(onBack: () -> Unit) {
     val c = LocalTf.current
+    val vm: ProfileViewModel = viewModel { ProfileViewModel(getKoin().get(), getKoin().get()) }
     val pickImage = rememberImagePicker { bytes ->
         val bmp = bytes?.let { runCatching { it.decodeToImageBitmap() }.getOrNull() }
-        if (bmp != null) ProfileImage.set(bytes, bmp)
+        if (bmp != null) {
+            ProfileImage.set(bytes, bmp)
+            bytes?.let { vm.uploadPhoto(it) }
+        }
     }
     Column(Modifier.fillMaxSize()) {
         BackBar("Profil", onBack)
@@ -28,7 +35,7 @@ fun ProfileScreen(onBack: () -> Unit) {
             ) {
                 UserAvatar(
                     size = 88,
-                    letter = TUSER.name.take(1).uppercase(),
+                    letter = (vm.user?.displayName ?: "?").take(1).uppercase(),
                     onClick = pickImage,
                 )
                 TfText(
@@ -36,10 +43,10 @@ fun ProfileScreen(onBack: () -> Unit) {
                     modifier = Modifier.padding(top = 8.dp).then(pressScale(pickImage, 0.96f)),
                 )
                 TfText(
-                    TUSER.name, color = c.fg, size = 22f, weight = FontWeight.Bold,
+                    vm.user?.displayName ?: "", color = c.fg, size = 22f, weight = FontWeight.Bold,
                     family = Fonts.display, modifier = Modifier.padding(top = 12.dp),
                 )
-                TfText("${TUSER.handle} · $TCITY", color = c.fg2, size = 13f,
+                TfText("${vm.user?.handle ?: ""} · ${vm.user?.city ?: ""}", color = c.fg2, size = 13f,
                     modifier = Modifier.padding(top = 2.dp))
             }
 
@@ -49,17 +56,17 @@ fun ProfileScreen(onBack: () -> Unit) {
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Stat("Streak", "${TUSER.streak}")
-                    Stat("Level", "${TUSER.level}")
-                    Stat("XP", "${TUSER.xp}/${TUSER.xpNext}")
+                    Stat("Streak", "${vm.gamification?.streak ?: 0}")
+                    Stat("Level", "${vm.gamification?.level ?: 0}")
+                    Stat("XP", "${vm.gamification?.xp ?: 0}/${vm.gamification?.xpNext ?: 0}")
                 }
             }
 
             // Info rows
             Card {
-                InfoRow("Coach", TUSER.coach)
-                InfoRow("Today", TUSER.today)
-                InfoRow("City", TCITY)
+                InfoRow("Coach", "Murabbiy")
+                InfoRow("Language", vm.user?.languageTag ?: "")
+                InfoRow("City", vm.user?.city ?: "")
             }
         }
     }
