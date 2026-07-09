@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import com.example.tafakkurai.flashcards.ReviewDirection
+import com.example.tafakkurai.flashcards.ReviewFilter
 import com.example.tafakkurai.screens.*
 import com.example.tafakkurai.ui.*
 import com.example.tafakkurai.vm.ThoughtsViewModel
@@ -147,9 +149,33 @@ private fun ScreenHost(
         "appearance" -> AppearanceScreen(tweaks = tweaks, onBack = onPop)
         else -> when {
             route.startsWith("subject:") -> {
-                val sub = TSUBJECTS.firstOrNull { it.id == route.removePrefix("subject:") }
-                if (sub != null) SubjectScreen(s = sub, onBack = onPop, onLesson = { onPush("lesson") })
-                else TodayScreen(onOpenModule = onOpenByModule, onCoach = { onPush("coach") })
+                val sid = route.removePrefix("subject:")
+                // Backend subjects aren't in TSUBJECTS — fall back to a minimal model so the screen still opens.
+                val sub = TSUBJECTS.firstOrNull { it.id == sid }
+                    ?: Subject(sid, "Subject", "", "book", 0, "", 0f, "Start learning", 0, "cyan")
+                SubjectScreen(s = sub, onBack = onPop, onLesson = { onPush("lesson") }, onFlashcards = { onPush("decks:$sid") })
+            }
+            route.startsWith("decks:") -> FlashcardDecksScreen(
+                subjectId = route.removePrefix("decks:"),
+                onBack = onPop,
+                onDeck = { onPush("deck:$it") },
+            )
+            route.startsWith("deck:") -> {
+                val deckId = route.removePrefix("deck:")
+                FlashcardDeckScreen(
+                    deckId = deckId,
+                    onBack = onPop,
+                    onStudy = { filter, dir -> onPush("review:$deckId:${filter.name}:${dir.name}") },
+                )
+            }
+            route.startsWith("review:") -> {
+                val parts = route.removePrefix("review:").split(":")
+                FlashcardReviewScreen(
+                    deckId = parts[0],
+                    filter = ReviewFilter.valueOf(parts.getOrElse(1) { "DUE" }),
+                    direction = ReviewDirection.valueOf(parts.getOrElse(2) { "FRONT_BACK" }),
+                    onBack = onPop,
+                )
             }
             else -> {
                 val info = STUB_INFO[route]

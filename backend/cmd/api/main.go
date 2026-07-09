@@ -76,7 +76,7 @@ func run() error {
 	trackerSvc := tracker.NewService(tracker.NewRepo(pool))
 	trackerH := tracker.NewHandler(trackerSvc, gamSvc)
 
-	prayerH := prayer.NewHandler(prayer.NewService(userSvc, gamSvc, trackerSvc))
+	prayerH := prayer.NewHandler(prayer.NewService(userSvc, gamSvc, trackerSvc, prayer.NewCompletionRepo(pool)))
 
 	coachSvc := coach.NewService(coach.NewRepo(pool), coach.NewClient(cfg))
 	coachH := coach.NewHandler(coachSvc, ratelimit.NewPerMinute(cfg.RateCoachPerMin))

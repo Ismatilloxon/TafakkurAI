@@ -13,14 +13,19 @@ import (
 )
 
 type Service struct {
-	users   user.Service
-	gamify  gamify.Service
-	tracker tracker.Service
+	users       user.Service
+	gamify      gamify.Service
+	tracker     tracker.Service
+	completions *CompletionRepo
 }
 
-func NewService(u user.Service, g gamify.Service, tr tracker.Service) *Service {
-	return &Service{users: u, gamify: g, tracker: tr}
+func NewService(u user.Service, g gamify.Service, tr tracker.Service, completions *CompletionRepo) *Service {
+	return &Service{users: u, gamify: g, tracker: tr, completions: completions}
 }
+
+// onTimeWindowMinutes: completions within this many minutes of the scheduled
+// adhan time count as on-time; beyond it, late.
+const onTimeWindowMinutes = 15
 
 type PrayerTimeDTO struct {
 	Name string `json:"name"`
@@ -122,4 +127,72 @@ func (s *Service) Track(ctx context.Context, userID uuid.UUID, prayer string, da
 		return gamify.State{}, err
 	}
 	return s.gamify.Award(ctx, userID, gamify.EventPrayerTracked)
+}
+
+// CompleteInput carries a full completion record from the client, which
+// already knows the scheduled adhan time (via PrayerTimelineService) and the
+// moment the user tapped "Complete Prayer".
+type CompleteInput struct {
+	Prayer        string
+	ScheduledTime time.Time
+	CompletedAt   time.Time
+	Latitude      *float64
+	Longitude     *float64
+	LocationLabel *string
+}
+
+type CompleteResult struct {
+	Completion   Completion
+	Gamification gamify.State
+}
+
+// Complete records a rich prayer completion (delay, on-time/late) and awards
+// XP — a base amount for logging, plus a bonus for praying on time.
+func (s *Service) Complete(ctx context.Context, userID uuid.UUID, in CompleteInput) (CompleteResult, error) {
+	delay := int(in.CompletedAt.Sub(in.ScheduledTime).Minutes())
+	if delay < 0 {
+		delay = 0
+	}
+	onTime := delay <= onTimeWindowMinutes
+
+	c, err := s.completions.Create(ctx, Completion{
+		UserID:        userID,
+		Prayer:        in.Prayer,
+		ScheduledTime: in.ScheduledTime,
+		CompletedAt:   in.CompletedAt,
+		DelayMinutes:  delay,
+		OnTime:        onTime,
+		Late:          !onTime,
+		Latitude:      in.Latitude,
+		Longitude:     in.Longitude,
+		LocationLabel: in.LocationLabel,
+	})
+	if err != nil {
+		return CompleteResult{}, err
+	}
+
+	// Mirror into the generic tracker log so other features (feed, coach)
+	// that read tracker_entries still see prayer activity.
+	payload, _ := json.Marshal(map[string]any{"prayer": in.Prayer, "on_time": onTime, "delay_minutes": delay})
+	if _, err := s.tracker.Create(ctx, userID, "prayer", payload, in.CompletedAt); err != nil {
+		return CompleteResult{}, err
+	}
+
+	state, err := s.gamify.Award(ctx, userID, gamify.EventPrayerTracked)
+	if err != nil {
+		return CompleteResult{}, err
+	}
+	if onTime {
+		state, err = s.gamify.Award(ctx, userID, gamify.EventPrayerOnTime)
+		if err != nil {
+			return CompleteResult{}, err
+		}
+	}
+
+	return CompleteResult{Completion: c, Gamification: state}, nil
+}
+
+// History returns completions in [from, to] for the Prayer History screen.
+func (s *Service) History(ctx context.Context, userID uuid.UUID, from, to time.Time) ([]Completion, error) {
+	return s.completions.List(ctx, userID, from, to)
 }

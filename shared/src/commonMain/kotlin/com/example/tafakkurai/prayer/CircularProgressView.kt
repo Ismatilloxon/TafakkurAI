@@ -4,16 +4,24 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -31,8 +39,13 @@ import com.example.tafakkurai.ui.Fonts
 import com.example.tafakkurai.ui.LocalTf
 import com.example.tafakkurai.ui.Overline
 import com.example.tafakkurai.ui.Pill
+import com.example.tafakkurai.ui.TfIcon
 import com.example.tafakkurai.ui.TfText
+import com.example.tafakkurai.ui.pressScale
 import com.example.tafakkurai.ui.soft
+import kotlinx.coroutines.launch
+import org.koin.mp.KoinPlatform.getKoin
+import uz.tafakkur.domain.usecase.TrackPrayerUseCase
 
 /**
  * Clock-style ring. The track is a full circle; [progress] (0..1) fills clockwise
@@ -89,6 +102,11 @@ fun SalahProgressHero(
     val c = LocalTf.current
     val ui = vm.state
 
+    val scope = rememberCoroutineScope()
+    val trackPrayer = remember { getKoin().get<TrackPrayerUseCase>() }
+    // Re-arms the button for each prayer interval so the same prayer isn't logged twice.
+    var logged by remember(ui.nextKey) { mutableStateOf(false) }
+
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
         val obs = LifecycleEventObserver { _, e ->
@@ -111,6 +129,38 @@ fun SalahProgressHero(
                     family = Fonts.mono, letterSpacing = 1f,
                 )
                 Pill("in ${ui.countdown}", c.accent, c.accent.soft(0.16f))
+
+                val btnColor = if (logged) c.green else c.gold
+                Box(
+                    Modifier
+                        .padding(top = 5.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(btnColor.soft(0.16f))
+                        .then(
+                            pressScale({
+                                if (!logged) {
+                                    logged = true
+                                    scope.launch {
+                                        runCatching { trackPrayer(ui.nextName.lowercase()) }
+                                            .onFailure { logged = false } // let user retry on network error
+                                    }
+                                }
+                            }, 0.94f)
+                        )
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        TfIcon(if (logged) "checkCircle" else "check", size = 14, color = btnColor)
+                        TfText(
+                            if (logged) "Completed" else "Complete prayer",
+                            color = btnColor, size = 13f, weight = FontWeight.SemiBold,
+                        )
+                    }
+                }
             }
         }
     }

@@ -1,0 +1,31 @@
+CREATE TABLE prayerCompletion (
+    id TEXT NOT NULL PRIMARY KEY,
+    prayer TEXT NOT NULL,
+    scheduledTime TEXT NOT NULL,
+    completedAt TEXT NOT NULL,
+    delayMinutes INTEGER NOT NULL,
+    onTime INTEGER NOT NULL,
+    late INTEGER NOT NULL,
+    locationLabel TEXT,
+    synced INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX prayerCompletion_scheduledTime ON prayerCompletion(scheduledTime DESC);
+
+insert:
+INSERT INTO prayerCompletion (id, prayer, scheduledTime, completedAt, delayMinutes, onTime, late, locationLabel, synced)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectAll:
+SELECT * FROM prayerCompletion ORDER BY scheduledTime DESC;
+
+selectBetween:
+SELECT * FROM prayerCompletion
+WHERE scheduledTime >= :from AND scheduledTime <= :to
+ORDER BY scheduledTime DESC;
+
+markSynced:
+UPDATE prayerCompletion SET synced = 1 WHERE id = ?;
+
+selectUnsynced:
+SELECT * FROM prayerCompletion WHERE synced = 0;

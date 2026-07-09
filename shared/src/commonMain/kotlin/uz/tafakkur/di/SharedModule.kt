@@ -1,5 +1,8 @@
 package uz.tafakkur.di
 
+import com.example.tafakkurai.db.DatabaseDriverFactory
+import com.example.tafakkurai.db.createTafakkurDb
+import com.example.tafakkurai.flashcards.FlashcardStore
 import io.ktor.client.engine.HttpClientEngine
 import org.koin.core.KoinApplication
 import org.koin.core.context.startKoin
@@ -79,6 +82,12 @@ val dataModule = module {
     single<TrackerRepository> { TrackerRepositoryImpl(get()) }
 }
 
+/** Local persistence (SQLDelight). Platform layer must register a DatabaseDriverFactory. */
+val localModule = module {
+    single { createTafakkurDb(get<DatabaseDriverFactory>()) }
+    single { FlashcardStore(get()) }
+}
+
 val domainModule = module {
     factory { StartPhoneOtpUseCase(get()) }
     factory { SignInUseCase(get()) }
@@ -129,5 +138,6 @@ fun initKoin(
         networkModule(config, engine, tokenProvider),
         dataModule,
         domainModule,
+        localModule,
     )
 }

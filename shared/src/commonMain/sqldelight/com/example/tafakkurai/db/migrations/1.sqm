@@ -1,0 +1,40 @@
+-- v1 → v2: flashcards (decks, cards with FSRS state, review log)
+CREATE TABLE deck (
+    id TEXT NOT NULL PRIMARY KEY,
+    subjectId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    createdAt INTEGER NOT NULL
+);
+
+CREATE TABLE flashcard (
+    id TEXT NOT NULL PRIMARY KEY,
+    deckId TEXT NOT NULL,
+    front TEXT NOT NULL,
+    back TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    starred INTEGER NOT NULL DEFAULT 0,
+    ignored INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    state INTEGER NOT NULL DEFAULT 0,
+    stability REAL NOT NULL DEFAULT 0,
+    difficulty REAL NOT NULL DEFAULT 0,
+    due INTEGER NOT NULL DEFAULT 0,
+    lastReview INTEGER,
+    reps INTEGER NOT NULL DEFAULT 0,
+    lapses INTEGER NOT NULL DEFAULT 0,
+    lastRating INTEGER
+);
+
+CREATE INDEX flashcard_deck ON flashcard(deckId);
+CREATE INDEX flashcard_due ON flashcard(due);
+
+CREATE TABLE reviewLog (
+    id TEXT NOT NULL PRIMARY KEY,
+    cardId TEXT NOT NULL,
+    rating INTEGER NOT NULL,
+    reviewedAt INTEGER NOT NULL,
+    elapsedDays REAL NOT NULL,
+    scheduledDays REAL NOT NULL
+);
+
+CREATE INDEX reviewLog_card ON reviewLog(cardId);

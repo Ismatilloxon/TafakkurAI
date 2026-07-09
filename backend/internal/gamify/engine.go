@@ -10,6 +10,7 @@ type Event string
 
 const (
 	EventPrayerTracked    Event = "prayer_tracked"
+	EventPrayerOnTime     Event = "prayer_on_time"
 	EventThoughtPublished Event = "thought_published"
 	EventLessonCompleted  Event = "lesson_completed"
 	EventTrackerEntry     Event = "tracker_entry"
@@ -31,6 +32,8 @@ func xpFor(ev Event) int {
 		return 20
 	case EventPrayerTracked:
 		return 10
+	case EventPrayerOnTime:
+		return 5
 	case EventThoughtPublished, EventTrackerEntry:
 		return 5
 	case EventDailyCheckin:

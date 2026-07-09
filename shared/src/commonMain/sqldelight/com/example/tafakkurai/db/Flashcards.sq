@@ -1,0 +1,98 @@
+CREATE TABLE deck (
+    id TEXT NOT NULL PRIMARY KEY,
+    subjectId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    createdAt INTEGER NOT NULL
+);
+
+CREATE TABLE flashcard (
+    id TEXT NOT NULL PRIMARY KEY,
+    deckId TEXT NOT NULL,
+    front TEXT NOT NULL,
+    back TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    starred INTEGER NOT NULL DEFAULT 0,
+    ignored INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    -- FSRS scheduling state
+    state INTEGER NOT NULL DEFAULT 0,      -- 0 new · 1 learning · 2 review · 3 relearning
+    stability REAL NOT NULL DEFAULT 0,
+    difficulty REAL NOT NULL DEFAULT 0,
+    due INTEGER NOT NULL DEFAULT 0,        -- epoch millis
+    lastReview INTEGER,
+    reps INTEGER NOT NULL DEFAULT 0,
+    lapses INTEGER NOT NULL DEFAULT 0,
+    lastRating INTEGER                     -- 1 again · 2 hard · 3 good · 4 easy
+);
+
+CREATE INDEX flashcard_deck ON flashcard(deckId);
+CREATE INDEX flashcard_due ON flashcard(due);
+
+CREATE TABLE reviewLog (
+    id TEXT NOT NULL PRIMARY KEY,
+    cardId TEXT NOT NULL,
+    rating INTEGER NOT NULL,
+    reviewedAt INTEGER NOT NULL,
+    elapsedDays REAL NOT NULL,
+    scheduledDays REAL NOT NULL
+);
+
+CREATE INDEX reviewLog_card ON reviewLog(cardId);
+
+-- decks -----------------------------------------------------------------
+insertDeck:
+INSERT INTO deck (id, subjectId, name, createdAt) VALUES (?, ?, ?, ?);
+
+decksBySubject:
+SELECT * FROM deck WHERE subjectId = ? ORDER BY createdAt;
+
+renameDeck:
+UPDATE deck SET name = ? WHERE id = ?;
+
+deleteDeck {
+    DELETE FROM flashcard WHERE deckId = :id;
+    DELETE FROM deck WHERE id = :id;
+}
+
+-- cards -----------------------------------------------------------------
+insertCard:
+INSERT INTO flashcard (id, deckId, front, back, tags, createdAt, due)
+VALUES (?, ?, ?, ?, ?, :createdAt, :createdAt);
+
+cardsByDeck:
+SELECT * FROM flashcard WHERE deckId = ? ORDER BY createdAt;
+
+updateCardContent:
+UPDATE flashcard SET front = ?, back = ?, tags = ? WHERE id = ?;
+
+setStarred:
+UPDATE flashcard SET starred = ? WHERE id = ?;
+
+setIgnored:
+UPDATE flashcard SET ignored = ? WHERE id = ?;
+
+deleteCard:
+DELETE FROM flashcard WHERE id = ?;
+
+updateSchedule:
+UPDATE flashcard SET
+    state = ?, stability = ?, difficulty = ?, due = ?,
+    lastReview = ?, reps = reps + 1,
+    lapses = lapses + :lapseInc, lastRating = ?
+WHERE id = ?;
+
+-- stats -----------------------------------------------------------------
+deckCounts:
+SELECT
+    COUNT(*) AS total,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END) AS new,
+    SUM(CASE WHEN due <= :now AND ignored = 0 THEN 1 ELSE 0 END) AS due,
+    SUM(CASE WHEN lastRating = 2 OR lapses > 0 THEN 1 ELSE 0 END) AS hard
+FROM flashcard WHERE deckId = ?;
+
+insertLog:
+INSERT INTO reviewLog (id, cardId, rating, reviewedAt, elapsedDays, scheduledDays)
+VALUES (?, ?, ?, ?, ?, ?);
+
+logCountSince:
+SELECT COUNT(*) FROM reviewLog WHERE reviewedAt >= ?;

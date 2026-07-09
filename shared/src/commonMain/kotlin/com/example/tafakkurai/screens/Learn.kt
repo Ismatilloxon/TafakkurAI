@@ -83,7 +83,7 @@ private fun SubjectRow(s: Subject, onOpen: () -> Unit) {
 
 // ── Subject detail ───────────────────────────────────────────────────────────
 @Composable
-fun SubjectScreen(s: Subject, onBack: () -> Unit, onLesson: () -> Unit) {
+fun SubjectScreen(s: Subject, onBack: () -> Unit, onLesson: () -> Unit, onFlashcards: () -> Unit = {}) {
     val c = LocalTf.current
     val col = c.named(if (s.accent == "blue") "cyan" else s.accent)
     Column(Modifier.fillMaxSize()) {
@@ -109,6 +109,17 @@ fun SubjectScreen(s: Subject, onBack: () -> Unit, onLesson: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
                     ProgressBar(s.progress, col, modifier = Modifier.weight(1f))
                     TfText("${(s.progress * 100).toInt()}%", color = c.fg2, size = 12f, family = Fonts.mono)
+                }
+            }
+            // flashcards (FSRS spaced repetition)
+            InsetCard(onClick = onFlashcards) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                    IconBadge("bookOpen", col, size = 44, iconSize = 21)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        TfText("Flashcards", color = c.fg, size = 15.5f, weight = FontWeight.SemiBold)
+                        TfText("Anki-style review · FSRS scheduling", color = c.fg2, size = 12.5f)
+                    }
+                    TfIcon("chevronRight", size = 18, color = c.fg3)
                 }
             }
             // up next → lesson
