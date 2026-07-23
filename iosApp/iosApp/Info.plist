@@ -6,5 +6,9 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TafakkurAI needs access to your photos so you can set a profile picture.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Please give us access to our location to calculate prayer time</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Please give us access to your location to calculate prayer times</string>
 </dict>
 </plist>

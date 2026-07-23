@@ -17,7 +17,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tafakkurai.*
+import com.example.tafakkurai.prayer.PrayerProgressViewModel
+import com.example.tafakkurai.prayer.rememberPrayerTimes
 import com.example.tafakkurai.ui.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
@@ -36,6 +39,9 @@ fun PrayerTrackerScreen(onBack: () -> Unit) {
     val trackPrayer = remember { getKoin().get<TrackPrayerUseCase>() }
     val states = remember { mutableStateListOf<PrayerToday>().apply { addAll(TPRAYER_TODAY) } }
     val prayed = states.count { it.state != "upcoming" }
+    // Times + countdown come from the device location (fallback list until a fix lands).
+    val times = rememberPrayerTimes()
+    val prayerVm: PrayerProgressViewModel = viewModel { PrayerProgressViewModel(getKoin().get()) }
     Column(Modifier.fillMaxSize()) {
         BackBar("Prayer", onBack)
         ScrollBody {
@@ -45,7 +51,10 @@ fun PrayerTrackerScreen(onBack: () -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
                         TfText("الصلاة", color = c.gold, size = 40f, family = Fonts.serif)
                         TfText("$prayed of 5 prayed", color = c.fg, size = 20f, weight = FontWeight.Bold, family = Fonts.display)
-                        Pill("Next · ${TNEXT.name} in ${TNEXT.inLabel}", c.accent, c.accent.soft(0.16f))
+                        Pill(
+                            "Next · ${prayerVm.state.nextName} in ${prayerVm.state.countdown}",
+                            c.accent, c.accent.soft(0.16f),
+                        )
                         TfText("$THIJRI · $TCITY", color = c.fg3, size = 12.5f)
                     }
                 }
@@ -69,7 +78,7 @@ fun PrayerTrackerScreen(onBack: () -> Unit) {
                                     TfText(p.name, color = c.fg, size = 15.5f, weight = FontWeight.SemiBold)
                                     TfText(p.arabic, color = c.gold, size = 15f, family = Fonts.serif)
                                 }
-                                TfText(p.time, color = c.fg3, size = 12.5f, family = Fonts.mono)
+                                TfText(times[p.key] ?: p.time, color = c.fg3, size = 12.5f, family = Fonts.mono)
                             }
                             val nextState = PRAYER_CYCLE[(PRAYER_CYCLE.indexOf(p.state).coerceAtLeast(0) + 1) % PRAYER_CYCLE.size]
                             Box(

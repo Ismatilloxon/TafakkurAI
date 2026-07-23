@@ -1,7 +1,13 @@
 package com.example.tafakkurai.prayer
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.example.tafakkurai.PrayerTime
 import com.example.tafakkurai.TPRAYERS
+import com.example.tafakkurai.location.Coordinates
+import com.example.tafakkurai.location.PrayerLocationManager
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The app's prayer-schedule source. This is the seam where a real network/API
@@ -19,6 +25,52 @@ interface PrayerScheduleRepository {
  */
 class StaticPrayerScheduleRepository : PrayerScheduleRepository {
     override fun schedule(dayOffset: Int): List<PrayerTime> = TPRAYERS
+}
+
+/**
+ * Computes the schedule from the device location using [PrayerCalculator]. Call
+ * [refresh] (suspending) to fetch coordinates before rendering; [schedule] stays
+ * synchronous so the timeline/ViewModel are untouched. Falls back to [TPRAYERS]
+ * until a fix is available or if permission is denied.
+ */
+class LocationPrayerScheduleRepository(
+    private val locationManager: PrayerLocationManager,
+    private val calculator: PrayerCalculator = PrayerCalculator(),
+    private val fallback: PrayerScheduleRepository = StaticPrayerScheduleRepository(),
+) : PrayerScheduleRepository {
+
+    /**
+     * Held as Compose state so every screen reading [schedule] recomposes the moment
+     * a fix lands — the permission dialog is answered long after first composition.
+     */
+    private var coordinates by mutableStateOf<Coordinates?>(null)
+
+    /** True once a fix has been obtained, so callers can stop retrying. */
+    val hasFix: Boolean get() = coordinates != null
+
+    /**
+     * Fetches current coordinates. Returns true if a fix was obtained. A failed
+     * attempt keeps the last known fix rather than falling back to the static list.
+     */
+    suspend fun refresh(): Boolean {
+        val fix = withTimeoutOrNull(FIX_TIMEOUT_MS) { locationManager.current() }
+        if (fix != null) coordinates = fix
+        return fix != null
+    }
+
+    override fun schedule(dayOffset: Int): List<PrayerTime> {
+        val coords = coordinates ?: return fallback.schedule(dayOffset)
+        return calculator.timesFor(
+            coords = coords,
+            date = deviceDate(dayOffset),
+            utcOffsetHours = deviceUtcOffsetHours(),
+        )
+    }
+
+    private companion object {
+        /** Give the OS dialog + GPS warm-up room, but never hang the caller forever. */
+        const val FIX_TIMEOUT_MS = 20_000L
+    }
 }
 
 /**

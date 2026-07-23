@@ -3,6 +3,10 @@ package uz.tafakkur.di
 import com.example.tafakkurai.db.DatabaseDriverFactory
 import com.example.tafakkurai.db.createTafakkurDb
 import com.example.tafakkurai.flashcards.FlashcardStore
+import com.example.tafakkurai.prayer.LocationPrayerScheduleRepository
+import com.example.tafakkurai.prayer.PrayerCalculator
+import com.example.tafakkurai.prayer.PrayerScheduleRepository
+import com.example.tafakkurai.prayer.PrayerTimelineService
 import io.ktor.client.engine.HttpClientEngine
 import org.koin.core.KoinApplication
 import org.koin.core.context.startKoin
@@ -82,6 +86,21 @@ val dataModule = module {
     single<TrackerRepository> { TrackerRepositoryImpl(get()) }
 }
 
+/**
+ * Prayer times computed on-device from the user's coordinates. The platform layer
+ * must register a PrayerLocationManager (Android needs the application Context).
+ * Everything shares one repository instance so a single fix updates every screen.
+ */
+val prayerModule = module {
+    // Muslim World League angles, Standard (non-Hanafi) Asr, middle-of-night rule at
+    // high latitudes. Swap the convention here, e.g.
+    // PrayerCalculator(CalculationMethod.KARACHI.copy(asr = AsrJuristic.HANAFI)).
+    single { PrayerCalculator() }
+    single { LocationPrayerScheduleRepository(get(), get()) }
+    single<PrayerScheduleRepository> { get<LocationPrayerScheduleRepository>() }
+    single { PrayerTimelineService(get()) }
+}
+
 /** Local persistence (SQLDelight). Platform layer must register a DatabaseDriverFactory. */
 val localModule = module {
     single { createTafakkurDb(get<DatabaseDriverFactory>()) }
@@ -139,5 +158,6 @@ fun initKoin(
         dataModule,
         domainModule,
         localModule,
+        prayerModule,
     )
 }

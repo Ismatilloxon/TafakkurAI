@@ -7,15 +7,21 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.example.tafakkurai.flashcards.ReviewDirection
+import com.example.tafakkurai.prayer.LocationPrayerScheduleRepository
 import com.example.tafakkurai.flashcards.ReviewFilter
 import com.example.tafakkurai.screens.*
 import com.example.tafakkurai.ui.*
 import com.example.tafakkurai.vm.ThoughtsViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import org.koin.mp.KoinPlatform.getKoin
 
 /** Tab roots that show the bottom tab bar. */
 private val TAB_ROOTS = listOf("today", "learn", "do", "thoughts", "more")
+
+/** Location retry budget: ~40 × 1.5s ≈ 1 minute for the user to answer the dialog. */
+private const val LOCATION_ATTEMPTS = 40
+private const val LOCATION_RETRY_MS = 1_500L
 
 /** Mutable user preferences (was TWEAK_DEFAULTS + tweaks panel in the prototype). */
 @Stable
@@ -39,6 +45,17 @@ fun App() {
     val nav = remember { mutableStateListOf("today") }
     var sheetOpen by remember { mutableStateOf(false) }
     val thoughtsVm: ThoughtsViewModel = viewModel { ThoughtsViewModel(getKoin().get(), getKoin().get(), getKoin().get()) }
+
+    // Request user location on launch — prayer times are computed from it.
+    // The OS permission dialog resolves asynchronously on both platforms, so keep
+    // retrying until a fix lands; until then the schedule uses the bundled fallback.
+    val prayerRepository: LocationPrayerScheduleRepository = remember { getKoin().get() }
+    LaunchedEffect(Unit) {
+        repeat(LOCATION_ATTEMPTS) {
+            if (prayerRepository.refresh()) return@LaunchedEffect
+            delay(LOCATION_RETRY_MS)
+        }
+    }
 
     // reset root when nav mode flips
     LaunchedEffect(tweaks.nav) {

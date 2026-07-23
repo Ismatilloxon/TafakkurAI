@@ -97,20 +97,25 @@ fun CircularProgressView(
 @Composable
 fun SalahProgressHero(
     modifier: Modifier = Modifier,
-    vm: PrayerProgressViewModel = viewModel { PrayerProgressViewModel() },
+    vm: PrayerProgressViewModel = viewModel { PrayerProgressViewModel(getKoin().get()) },
 ) {
     val c = LocalTf.current
     val ui = vm.state
 
     val scope = rememberCoroutineScope()
     val trackPrayer = remember { getKoin().get<TrackPrayerUseCase>() }
+    val prayerRepository = remember { getKoin().get<LocationPrayerScheduleRepository>() }
     // Re-arms the button for each prayer interval so the same prayer isn't logged twice.
     var logged by remember(ui.nextKey) { mutableStateOf(false) }
 
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
         val obs = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_RESUME) vm.refresh()
+            if (e == Lifecycle.Event.ON_RESUME) {
+                vm.refresh()
+                // Picks up a permission the user granted from system settings.
+                if (!prayerRepository.hasFix) scope.launch { prayerRepository.refresh() }
+            }
         }
         owner.lifecycle.addObserver(obs)
         onDispose { owner.lifecycle.removeObserver(obs) }
