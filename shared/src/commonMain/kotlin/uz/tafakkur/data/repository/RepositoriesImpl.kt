@@ -3,6 +3,9 @@ package uz.tafakkur.data.repository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import uz.tafakkur.core.feedback.CallInfo
+import uz.tafakkur.core.feedback.FeedbackKeys
+import uz.tafakkur.core.feedback.NetworkExecutor
 import uz.tafakkur.data.dto.CoachDeltaDto
 import uz.tafakkur.data.dto.CoachDoneDto
 import uz.tafakkur.data.dto.CoachErrorDto
@@ -47,13 +50,29 @@ import uz.tafakkur.network.SseFrame
 import uz.tafakkur.network.TokenProvider
 import uz.tafakkur.network.appJson
 
+/**
+ * Every network-backed repository routes its calls through [NetworkExecutor.call]. That one
+ * wrapper is what gives the whole app its global loader, centralised error→snackbar handling
+ * and per-request logging, so the individual methods stay as thin as they were — the only new
+ * thing each one declares is *what kind of feedback it deserves*:
+ *
+ *  - `successKey`   — a success snackbar, set only for meaningful mutations (never GETs).
+ *  - `showLoader`   — off for tiny/optimistic calls (like/track) so the global loader never
+ *                     flashes for a one-tap action.
+ *  - `reportErrors` — off for background/outbox work that is already best-effort; those calls
+ *                     are still mapped and logged, just not surfaced as a toast.
+ */
+
 class AuthRepositoryImpl(
     private val api: AuthApi,
     private val tokens: TokenProvider,
+    private val executor: NetworkExecutor,
 ) : AuthRepository {
 
     override suspend fun startPhoneOtp(phone: String): String =
-        api.startOtp(phone).verificationId
+        executor.call(CallInfo("POST", "v1/auth/otp/start")) {
+            api.startOtp(phone).verificationId
+        }
 
     override suspend fun signIn(provider: AuthProvider): AuthSession {
         val req = when (provider) {
@@ -65,14 +84,20 @@ class AuthRepositoryImpl(
                 otpCode = provider.code,
             )
         }
-        val resp = api.session(req)
-        tokens.update(resp.accessToken, resp.refreshToken)
-        return resp.toDomain()
+        return executor.call(CallInfo("POST", "v1/auth/session"), successKey = FeedbackKeys.LOGIN) {
+            val resp = api.session(req)
+            tokens.update(resp.accessToken, resp.refreshToken)
+            resp.toDomain()
+        }
     }
 
     override suspend fun logout() {
+        // Best-effort: clear local tokens even if the server call fails, and don't nag the
+        // user with an error toast for a sign-out that already succeeded locally.
         try {
-            api.logout()
+            executor.call(CallInfo("POST", "v1/auth/logout"), showLoader = false, reportErrors = false) {
+                api.logout()
+            }
         } finally {
             tokens.clear()
         }
@@ -81,8 +106,13 @@ class AuthRepositoryImpl(
     override fun isLoggedIn(): Boolean = tokens.isLoggedIn()
 }
 
-class UserRepositoryImpl(private val api: UserApi) : UserRepository {
-    override suspend fun getMe(): Me = api.me().toDomain()
+class UserRepositoryImpl(
+    private val api: UserApi,
+    private val executor: NetworkExecutor,
+) : UserRepository {
+
+    override suspend fun getMe(): Me =
+        executor.call(CallInfo("GET", "v1/me")) { api.me().toDomain() }
 
     override suspend fun updateProfile(
         displayName: String?,
@@ -90,27 +120,49 @@ class UserRepositoryImpl(private val api: UserApi) : UserRepository {
         gender: String?,
         birthDate: String?,
         language: String?,
-    ): UserProfile = api.updateProfile(
-        UpdateProfileDto(displayName, handle, gender, birthDate, language),
-    ).toDomain()
+    ): UserProfile = executor.call(
+        CallInfo("PUT", "v1/me/profile"),
+        successKey = FeedbackKeys.PROFILE_UPDATED,
+    ) {
+        api.updateProfile(UpdateProfileDto(displayName, handle, gender, birthDate, language)).toDomain()
+    }
 
-    override suspend fun replaceInterests(interests: List<String>): UserProfile =
+    override suspend fun replaceInterests(interests: List<String>): UserProfile = executor.call(
+        CallInfo("PUT", "v1/me/interests"),
+        successKey = FeedbackKeys.INTERESTS_SAVED,
+    ) {
         api.replaceInterests(ReplaceInterestsDto(interests)).toDomain()
+    }
 
     override suspend fun updatePrayerSettings(
         city: String?,
         country: String?,
         madhab: String,
         calcMethod: String,
-    ): UserProfile = api.updatePrayerSettings(PrayerSettingsDto(city, country, madhab, calcMethod)).toDomain()
+    ): UserProfile = executor.call(
+        CallInfo("PUT", "v1/me/prayer-settings"),
+        successKey = FeedbackKeys.SETTINGS_SAVED,
+    ) {
+        api.updatePrayerSettings(PrayerSettingsDto(city, country, madhab, calcMethod)).toDomain()
+    }
 
-    override suspend fun completeOnboarding(): UserProfile = api.completeOnboarding().toDomain()
+    // Part of the onboarding flow — its own screen shows the outcome, so stay quiet here.
+    override suspend fun completeOnboarding(): UserProfile =
+        executor.call(CallInfo("POST", "v1/me/onboarding/complete")) {
+            api.completeOnboarding().toDomain()
+        }
 
     override suspend fun uploadPhoto(bytes: ByteArray, filename: String, contentType: String): String =
-        api.uploadPhoto(bytes, filename, contentType).url
+        executor.call(CallInfo("POST", "v1/me/photo"), successKey = FeedbackKeys.PHOTO_UPDATED) {
+            api.uploadPhoto(bytes, filename, contentType).url
+        }
 }
 
-class PrayerRepositoryImpl(private val api: PrayerApi) : PrayerRepository {
+class PrayerRepositoryImpl(
+    private val api: PrayerApi,
+    private val executor: NetworkExecutor,
+) : PrayerRepository {
+
     override suspend fun getTimes(
         lat: Double,
         lng: Double,
@@ -118,33 +170,55 @@ class PrayerRepositoryImpl(private val api: PrayerApi) : PrayerRepository {
         method: String?,
         madhab: String?,
         tz: String?,
-    ): PrayerTimes = api.times(lat, lng, date, method, madhab, tz).toDomain()
+    ): PrayerTimes = executor.call(CallInfo("GET", "v1/prayer/times"), showLoader = false) {
+        api.times(lat, lng, date, method, madhab, tz).toDomain()
+    }
 
+    // Called by the outbox drain after the user marked a prayer locally; feedback already
+    // happened on-device, so this backend sync is log-only.
     override suspend fun track(prayer: String, date: String?): Gamification =
-        api.track(TrackPrayerRequestDto(prayer, date)).gamification.toDomain()
+        executor.call(CallInfo("POST", "v1/prayer/track"), showLoader = false, reportErrors = false) {
+            api.track(TrackPrayerRequestDto(prayer, date)).gamification.toDomain()
+        }
 }
 
-class FeedRepositoryImpl(private val api: FeedApi) : FeedRepository {
+class FeedRepositoryImpl(
+    private val api: FeedApi,
+    private val executor: NetworkExecutor,
+) : FeedRepository {
+
     override suspend fun feed(cursor: String?, limit: Int?): FeedPage =
-        api.feed(cursor, limit).toDomain()
+        executor.call(CallInfo("GET", "v1/thoughts")) { api.feed(cursor, limit).toDomain() }
 
     override suspend fun publish(text: String): SocialPost =
-        api.publish(PublishRequestDto(text)).toDomain()
+        executor.call(CallInfo("POST", "v1/thoughts"), successKey = FeedbackKeys.THOUGHT_PUBLISHED) {
+            api.publish(PublishRequestDto(text)).toDomain()
+        }
 
-    override suspend fun toggleLike(thoughtId: String): LikeResult {
-        val r = api.toggleLike(thoughtId)
-        return LikeResult(r.liked, r.likeCount)
-    }
+    // Optimistic one-tap action: no loader; a failure still surfaces so the UI can revert.
+    override suspend fun toggleLike(thoughtId: String): LikeResult =
+        executor.call(CallInfo("POST", "v1/thoughts/$thoughtId/like"), showLoader = false) {
+            val r = api.toggleLike(thoughtId)
+            LikeResult(r.liked, r.likeCount)
+        }
 }
 
-class CoachRepositoryImpl(private val api: CoachApi) : CoachRepository {
+class CoachRepositoryImpl(
+    private val api: CoachApi,
+    private val executor: NetworkExecutor,
+) : CoachRepository {
+
+    // Streaming SSE: the coach screen renders its own typing/error state token by token, so it
+    // is intentionally NOT wrapped in the executor (no global loader for a live stream).
     override fun streamMessage(conversationId: String?, message: String): Flow<CoachEvent> =
         api.stream(MessageRequestDto(conversationId, message))
             .map { it.toCoachEvent() }
             .catch { emit(CoachEvent.Error(it.message ?: "coach stream failed")) }
 
     override suspend fun history(conversationId: String, cursor: String?, limit: Int?): CoachHistory =
-        api.history(conversationId, cursor, limit).toDomain()
+        executor.call(CallInfo("GET", "v1/coach/history")) {
+            api.history(conversationId, cursor, limit).toDomain()
+        }
 
     private fun SseFrame.toCoachEvent(): CoachEvent = when (event) {
         "done" -> CoachEvent.Done(appJson.decodeFromString(CoachDoneDto.serializer(), data).conversationId)
@@ -153,21 +227,41 @@ class CoachRepositoryImpl(private val api: CoachApi) : CoachRepository {
     }
 }
 
-class LearnRepositoryImpl(private val api: LearnApi) : LearnRepository {
-    override suspend fun subjects(): List<Subject> = api.subjects().subjects.map { it.toDomain() }
+class LearnRepositoryImpl(
+    private val api: LearnApi,
+    private val executor: NetworkExecutor,
+) : LearnRepository {
+
+    override suspend fun subjects(): List<Subject> =
+        executor.call(CallInfo("GET", "v1/subjects")) { api.subjects().subjects.map { it.toDomain() } }
+
     override suspend fun lessons(subjectId: String): List<Lesson> =
-        api.lessons(subjectId).lessons.map { it.toDomain() }
-    override suspend fun lesson(lessonId: String): Lesson = api.lesson(lessonId).toDomain()
+        executor.call(CallInfo("GET", "v1/subjects/$subjectId/lessons")) {
+            api.lessons(subjectId).lessons.map { it.toDomain() }
+        }
+
+    override suspend fun lesson(lessonId: String): Lesson =
+        executor.call(CallInfo("GET", "v1/lessons/$lessonId")) { api.lesson(lessonId).toDomain() }
+
     override suspend fun complete(lessonId: String): Gamification =
-        api.complete(lessonId).gamification.toDomain()
+        executor.call(CallInfo("POST", "v1/lessons/$lessonId/complete"), successKey = FeedbackKeys.LESSON_COMPLETED) {
+            api.complete(lessonId).gamification.toDomain()
+        }
 }
 
-class TrackerRepositoryImpl(private val api: TrackerApi) : TrackerRepository {
-    override suspend fun create(kind: String, payloadJson: String, entryDate: String?): TrackerEntry {
-        val payload = appJson.parseToJsonElement(payloadJson)
-        return api.create(kind, CreateEntryRequestDto(entryDate, payload)).toDomain()
-    }
+class TrackerRepositoryImpl(
+    private val api: TrackerApi,
+    private val executor: NetworkExecutor,
+) : TrackerRepository {
+
+    override suspend fun create(kind: String, payloadJson: String, entryDate: String?): TrackerEntry =
+        executor.call(CallInfo("POST", "v1/trackers/$kind"), successKey = FeedbackKeys.ENTRY_SAVED) {
+            val payload = appJson.parseToJsonElement(payloadJson)
+            api.create(kind, CreateEntryRequestDto(entryDate, payload)).toDomain()
+        }
 
     override suspend fun list(kind: String, from: String?, to: String?): List<TrackerEntry> =
-        api.list(kind, from, to).entries.map { it.toDomain() }
+        executor.call(CallInfo("GET", "v1/trackers/$kind")) {
+            api.list(kind, from, to).entries.map { it.toDomain() }
+        }
 }

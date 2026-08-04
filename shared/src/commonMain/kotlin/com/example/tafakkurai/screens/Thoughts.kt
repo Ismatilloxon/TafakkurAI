@@ -19,13 +19,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.tafakkurai.*
+import com.example.tafakkurai.i18n.tr
 import com.example.tafakkurai.ui.*
 
 @Composable
 fun ThoughtsScreen(posts: List<SocialPost>, onCompose: () -> Unit, onLike: (String) -> Unit = {}) {
     val c = LocalTf.current
     Column(Modifier.fillMaxSize()) {
-        LargeTitle("Thoughts", right = {
+        LargeTitle(tr("thoughts.title"), right = {
             Box(Modifier.size(38.dp).clip(CircleShape).background(c.accent.soft(0.16f)).then(pressScale(onCompose, 0.9f)), contentAlignment = Alignment.Center) {
                 TfIcon("plus", size = 20, color = c.accent)
             }
@@ -38,11 +39,13 @@ fun ThoughtsScreen(posts: List<SocialPost>, onCompose: () -> Unit, onLike: (Stri
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
                 UserAvatar(size = 32)
-                TfText("Share a thought…", color = c.fg3, size = 14.5f, modifier = Modifier.weight(1f))
+                TfText(tr("thoughts.compose_hint"), color = c.fg3, size = 14.5f, modifier = Modifier.weight(1f))
                 TfIcon("penLine", size = 18, color = c.fg3)
             }
-            // circles strip
-            Overline("YOUR CIRCLES", color = c.fg3)
+            // circles strip. The heading takes the same 20dp inset as the strip below it —
+            // without a modifier it sat flush against the screen edge while every sibling
+            // was indented.
+            Overline(tr("thoughts.circles"), color = c.fg3, modifier = Modifier.padding(start = 20.dp))
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 TGROUPS.forEach { g ->
                     Row(

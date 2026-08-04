@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tafakkurai.*
+import com.example.tafakkurai.prayer.PrayerMark
+import com.example.tafakkurai.prayer.PrayerMarkStore
 import com.example.tafakkurai.prayer.PrayerProgressViewModel
 import com.example.tafakkurai.prayer.rememberPrayerTimes
 import com.example.tafakkurai.ui.*
@@ -30,15 +32,14 @@ import uz.tafakkur.domain.usecase.CreateTrackerEntryUseCase
 import uz.tafakkur.domain.usecase.TrackPrayerUseCase
 
 // ── Prayer tracker ───────────────────────────────────────────────────────────
-private val PRAYER_CYCLE = listOf("upcoming", "ontime", "jamaat")
-
 @Composable
 fun PrayerTrackerScreen(onBack: () -> Unit) {
     val c = LocalTf.current
     val scope = rememberCoroutineScope()
     val trackPrayer = remember { getKoin().get<TrackPrayerUseCase>() }
-    val states = remember { mutableStateListOf<PrayerToday>().apply { addAll(TPRAYER_TODAY) } }
-    val prayed = states.count { it.state != "upcoming" }
+    // Shared, persisted marks — same store the hero ring and Today card read/write.
+    val markStore = remember { getKoin().get<PrayerMarkStore>() }
+    val prayed = TPRAYER_TODAY.count { markStore.stateOf(it.key) != PrayerMark.NONE }
     // Times + countdown come from the device location (fallback list until a fix lands).
     val times = rememberPrayerTimes()
     val prayerVm: PrayerProgressViewModel = viewModel { PrayerProgressViewModel(getKoin().get()) }
@@ -66,8 +67,9 @@ fun PrayerTrackerScreen(onBack: () -> Unit) {
             }
             Overline("TODAY · TAP TO LOG", color = c.fg3)
             Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                states.forEachIndexed { i, p ->
-                    val meta = PRAYER_STATES.getValue(p.state)
+                TPRAYER_TODAY.forEach { p ->
+                    val mark = markStore.stateOf(p.key)
+                    val meta = PRAYER_STATES.getValue(mark.id)
                     Card(Modifier.fillMaxWidth(), pad = 14) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(meta.color.soft(0.14f)), contentAlignment = Alignment.Center) {
@@ -80,12 +82,11 @@ fun PrayerTrackerScreen(onBack: () -> Unit) {
                                 }
                                 TfText(times[p.key] ?: p.time, color = c.fg3, size = 12.5f, family = Fonts.mono)
                             }
-                            val nextState = PRAYER_CYCLE[(PRAYER_CYCLE.indexOf(p.state).coerceAtLeast(0) + 1) % PRAYER_CYCLE.size]
                             Box(
                                 Modifier.clip(RoundedCornerShape(999.dp)).background(meta.color.soft(0.16f))
-                                    .then(pressScale({ states[i] = p.copy(state = nextState); scope.launch { runCatching { trackPrayer(p.name.lowercase()) } } }, 0.94f))
+                                    .then(pressScale({ markStore.cycle(p.key); scope.launch { runCatching { trackPrayer(p.key) } } }, 0.94f))
                                     .padding(horizontal = 13.dp, vertical = 7.dp),
-                            ) { TfText(if (p.state == "upcoming") "Log" else meta.label, color = meta.color, size = 13f, weight = FontWeight.SemiBold) }
+                            ) { TfText(if (mark == PrayerMark.NONE) "Log" else meta.label, color = meta.color, size = 13f, weight = FontWeight.SemiBold) }
                         }
                     }
                 }
@@ -187,167 +188,13 @@ private fun JournalCard(j: JournalEntry) {
 }
 
 // ── Gratitude / Shukr ────────────────────────────────────────────────────────
-@Composable
-fun GratitudeScreen(onBack: () -> Unit) {
-    val c = LocalTf.current
-    val scope = rememberCoroutineScope()
-    val createEntry = remember { getKoin().get<CreateTrackerEntryUseCase>() }
-    val items = remember { mutableStateListOf<String>().apply { addAll(TGRATITUDE_TODAY) } }
-    var draft by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize()) {
-        BackBar("Shukr", onBack)
-        ScrollBody {
-            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                TfText("Shukr · gratitude", color = c.fg, size = 26f, family = Fonts.serif)
-                TfText("Name three things you're grateful for today. Small is fine — small is the point.", color = c.fg2, size = 13.5f, lineHeight = 1.5f)
-            }
-            InsetCard {
-                Overline("TODAY · ${items.size} of 3")
-                Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items.forEachIndexed { i, g ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Box(Modifier.size(28.dp).clip(CircleShape).background(c.green.soft(0.16f)), contentAlignment = Alignment.Center) { TfIcon("leaf", size = 14, color = c.green) }
-                            TfText(g, color = c.fg, size = 15f, modifier = Modifier.weight(1f))
-                            Box(Modifier.then(pressScale({ items.removeAt(i) }, 0.9f)).padding(4.dp)) { TfIcon("x", size = 15, color = c.fg3) }
-                        }
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).background(c.card3).padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    ) {
-                        Box(Modifier.weight(1f)) {
-                            if (draft.isEmpty()) TfText("Add something…", color = c.fg3, size = 14.5f)
-                            BasicTextField(
-                                value = draft, onValueChange = { draft = it }, singleLine = true,
-                                textStyle = TextStyle(color = c.fg, fontSize = 14.5.sp, fontFamily = Fonts.sans),
-                                cursorBrush = SolidColor(c.accent), modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                        Box(Modifier.size(32.dp).clip(CircleShape).background(c.green).then(pressScale({ if (draft.isNotBlank()) { val g = draft.trim(); items.add(g); draft = ""; scope.launch { runCatching { createEntry("gratitude", buildJsonObject { put("item", g) }.toString()) } } } }, 0.9f)), contentAlignment = Alignment.Center) {
-                            TfIcon("plus", size = 17, color = Color.White)
-                        }
-                    }
-                }
-            }
-            SectionTitle("This week")
-            Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                TJOURNAL.forEach { j ->
-                    Card(Modifier.fillMaxWidth(), pad = 14) {
-                        TfText(j.date, color = c.fg3, size = 11.5f, family = Fonts.mono)
-                        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            j.gratitude.forEach { g -> Pill(g, c.green, c.green.soft(0.14f), leading = { TfIcon("leaf", size = 10, color = c.green) }) }
-                        }
-                    }
-                }
-            }
-            PrivacyFooter()
-        }
-    }
-}
+// Moved to screens/Gratitude.kt — the feature now has its own module (home,
+// composer, history/calendar, search, jar, journeys, insights, monthly, settings)
+// backed by GratitudeStore and the /v1/gratitude API.
 
 // ── Qurʼan & dhikr ───────────────────────────────────────────────────────────
-@Composable
-fun QuranDhikrScreen(onBack: () -> Unit) {
-    val c = LocalTf.current
-    var tab by remember { mutableStateOf("quran") }
-    Column(Modifier.fillMaxSize()) {
-        BackBar("Qurʼan & dhikr", onBack)
-        Box(Modifier.padding(horizontal = HPAD.dp, vertical = 10.dp)) {
-            Segmented(listOf("quran" to "Qurʼan", "dhikr" to "Dhikr"), tab, { tab = it })
-        }
-        if (tab == "quran") QuranTab() else DhikrTab()
-    }
-}
-
-@Composable
-private fun ColumnScope.QuranTab() {
-    val c = LocalTf.current
-    ScrollBody {
-        InsetCard {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Overline("CONTINUE READING")
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                        TfText(TQURAN_LAST.surah, color = c.fg, size = 18f, weight = FontWeight.SemiBold)
-                        TfText(TQURAN_LAST.arabic, color = c.gold, size = 18f, family = Fonts.serif)
-                    }
-                    TfText("Ayah ${TQURAN_LAST.ayah} · Juz ${TQURAN_LAST.juz}", color = c.fg2, size = 12.5f, modifier = Modifier.padding(top = 2.dp))
-                    ProgressBar(TQURAN_LAST.pct, c.gold, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-                }
-                Box(Modifier.size(46.dp).clip(CircleShape).background(c.gold), contentAlignment = Alignment.Center) { TfIcon("play", size = 20, color = Color.White) }
-            }
-        }
-        InsetCard(pad = 18) {
-            Overline("VERSE OF THE DAY")
-            TfText(TQURAN_VERSE.arabic, color = c.fg, size = 26f, family = Fonts.serif, align = TextAlign.End, lineHeight = 1.6f, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
-            TfText(TQURAN_VERSE.meaning, color = c.fg2, size = 14.5f, lineHeight = 1.6f, modifier = Modifier.padding(top = 12.dp))
-            TfText(TQURAN_VERSE.ref, color = c.gold, size = 12.5f, family = Fonts.mono, modifier = Modifier.padding(top = 8.dp))
-        }
-        SectionTitle("Surahs")
-        Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            TQURAN_SURAHS.forEach { s ->
-                Card(Modifier.fillMaxWidth(), pad = 13) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(c.gold.soft(0.14f)), contentAlignment = Alignment.Center) {
-                            TfText("${s.no}", color = c.gold, size = 14f, weight = FontWeight.Bold, family = Fonts.mono)
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                TfText(s.name, color = c.fg, size = 15f, weight = FontWeight.SemiBold)
-                                TfText(s.arabic, color = c.gold, size = 15f, family = Fonts.serif)
-                            }
-                            TfText("${s.meaning} · ${s.ayahs} ayahs · ${s.place}", color = c.fg3, size = 11.5f)
-                        }
-                        if (s.read >= 1f) TfIcon("checkCircle", size = 18, color = c.green)
-                        else if (s.read > 0f) TfText("${(s.read * 100).toInt()}%", color = c.fg3, size = 11.5f, family = Fonts.mono)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ColumnScope.DhikrTab() {
-    val c = LocalTf.current
-    val target = 33
-    var count by remember { mutableStateOf(0) }
-    ScrollBody {
-        Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-            Box(contentAlignment = Alignment.Center) {
-                AmbientGlow(c.green, opacity = 0.16f)
-                RingGauge(count.toFloat() / target, c.green, c.card3, strokeWidth = 8f, size = 220,
-                    modifier = Modifier.then(pressScale({ if (count < target) count++ }, 0.97f))) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TfText("سُبْحَانَ ٱللَّٰه", color = c.gold, size = 22f, family = Fonts.serif)
-                        TfText("$count", color = c.fg, size = 54f, weight = FontWeight.Bold, family = Fonts.mono)
-                        TfText("of $target · tap", color = c.fg3, size = 12f)
-                    }
-                }
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            Box(Modifier.clip(RoundedCornerShape(999.dp)).border(0.5.dp, c.line, RoundedCornerShape(999.dp)).then(pressScale({ count = 0 }, 0.95f)).padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { TfIcon("repeat", size = 14, color = c.fg2); TfText("Reset", color = c.fg2, size = 13f) }
-            }
-        }
-        SectionTitle("Adhkar")
-        Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            TDHIKR.forEach { d ->
-                Card(Modifier.fillMaxWidth(), pad = 14) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1f)) {
-                            TfText(d.arabic, color = c.gold, size = 18f, family = Fonts.serif)
-                            TfText("${d.translit} · ${d.meaning}", color = c.fg2, size = 12f, modifier = Modifier.padding(top = 3.dp))
-                        }
-                        TfText("${d.count}/${d.target}", color = d.color, size = 14f, family = Fonts.mono, weight = FontWeight.SemiBold)
-                    }
-                    ProgressBar(d.count.toFloat() / d.target, d.color, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
-                }
-            }
-        }
-    }
-}
+// Moved to screens/QuranDhikr.kt — the feature now has its own three tabs
+// (Qurʼan / Dhikr / Adhkar), a surah list, an ayah reader and audio playback.
 
 // ── Reflect (module screen) ──────────────────────────────────────────────────
 @Composable

@@ -1,0 +1,35 @@
+-- v3 → v4: Qurʼan & dhikr feature storage. Mirrors QuranRead.sq, AppPref.sq,
+-- DhikrCount.sq and AdhkarMark.sq so an upgrading install ends up with exactly the
+-- schema a fresh install gets from Schema.create(). IF NOT EXISTS guards the dev
+-- case where a fresh install already created these before this migration existed.
+CREATE TABLE IF NOT EXISTS quranRead (
+    surah INTEGER NOT NULL,
+    ayah INTEGER NOT NULL,
+    readAt INTEGER NOT NULL,
+    PRIMARY KEY (surah, ayah)
+);
+
+CREATE INDEX IF NOT EXISTS quranRead_surah ON quranRead(surah);
+
+CREATE TABLE IF NOT EXISTS appPref (
+    prefKey TEXT NOT NULL PRIMARY KEY,
+    prefValue TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dhikrCount (
+    dateKey TEXT NOT NULL,
+    dhikrId TEXT NOT NULL,
+    total INTEGER NOT NULL,
+    PRIMARY KEY (dateKey, dhikrId)
+);
+
+CREATE INDEX IF NOT EXISTS dhikrCount_date ON dhikrCount(dateKey);
+
+CREATE TABLE IF NOT EXISTS adhkarMark (
+    dateKey TEXT NOT NULL,
+    category TEXT NOT NULL,
+    itemId TEXT NOT NULL,
+    PRIMARY KEY (dateKey, category, itemId)
+);
+
+CREATE INDEX IF NOT EXISTS adhkarMark_date ON adhkarMark(dateKey);

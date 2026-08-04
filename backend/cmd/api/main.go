@@ -18,6 +18,7 @@ import (
 	"github.com/tafakkur/backend/internal/config"
 	"github.com/tafakkur/backend/internal/feed"
 	"github.com/tafakkur/backend/internal/gamify"
+	"github.com/tafakkur/backend/internal/gratitude"
 	"github.com/tafakkur/backend/internal/learn"
 	"github.com/tafakkur/backend/internal/media"
 	"github.com/tafakkur/backend/internal/platform"
@@ -84,19 +85,22 @@ func run() error {
 	feedSvc := feed.NewService(feed.NewRepo(pool), userSvc, gamSvc)
 	feedH := feed.NewHandler(feedSvc, ratelimit.NewPerMinute(cfg.RatePostPerMin))
 
+	gratitudeH := gratitude.NewHandler(gratitude.NewService(gratitude.NewRepo(pool)), gamSvc, trackerSvc)
+
 	learnH := learn.NewHandler(learn.NewService(learn.NewRepo(pool)), gamSvc)
 
 	router := server.NewRouter(server.Deps{
-		Config:   cfg,
-		Verifier: jwtMgr,
-		Ready:    pool.Ping,
-		Auth:     authH,
-		User:     userH,
-		Prayer:   prayerH,
-		Coach:    coachH,
-		Feed:     feedH,
-		Learn:    learnH,
-		Tracker:  trackerH,
+		Config:    cfg,
+		Verifier:  jwtMgr,
+		Ready:     pool.Ping,
+		Auth:      authH,
+		User:      userH,
+		Prayer:    prayerH,
+		Coach:     coachH,
+		Feed:      feedH,
+		Learn:     learnH,
+		Tracker:   trackerH,
+		Gratitude: gratitudeH,
 	})
 
 	srv := &http.Server{

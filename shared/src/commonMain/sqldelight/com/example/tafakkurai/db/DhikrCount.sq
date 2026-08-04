@@ -1,0 +1,23 @@
+-- Tasbih totals per day and per dhikr. Keeping the day in the key gives "today's
+-- count" and the all-time/streak history from one table, and makes the counter
+-- roll over naturally at midnight instead of needing a reset job.
+CREATE TABLE dhikrCount (
+    dateKey TEXT NOT NULL,   -- local calendar day, "yyyy-MM-dd"
+    dhikrId TEXT NOT NULL,   -- subhanallah | alhamdulillah | allahuakbar | ...
+    total INTEGER NOT NULL,
+    PRIMARY KEY (dateKey, dhikrId)
+);
+
+CREATE INDEX dhikrCount_date ON dhikrCount(dateKey);
+
+selectByDate:
+SELECT dhikrId, total FROM dhikrCount WHERE dateKey = ?;
+
+selectDailyTotals:
+SELECT dateKey, sum(total) AS dayTotal FROM dhikrCount GROUP BY dateKey ORDER BY dateKey DESC;
+
+put:
+INSERT OR REPLACE INTO dhikrCount (dateKey, dhikrId, total) VALUES (?, ?, ?);
+
+clearDay:
+DELETE FROM dhikrCount WHERE dateKey = ?;

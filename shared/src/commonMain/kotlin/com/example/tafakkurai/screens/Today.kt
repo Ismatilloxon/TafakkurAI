@@ -13,8 +13,44 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.*
+import com.example.tafakkurai.adhkar.AdhkarCategory
+import com.example.tafakkurai.adhkar.AdhkarStore
+import com.example.tafakkurai.dhikr.DhikrStore
+import com.example.tafakkurai.gratitude.GratitudeStore
+import com.example.tafakkurai.prayer.LocationPrayerScheduleRepository
+import com.example.tafakkurai.prayer.PrayerMark
+import com.example.tafakkurai.prayer.PrayerMarkStore
 import com.example.tafakkurai.prayer.SalahProgressHero
+import com.example.tafakkurai.quran.QuranProgressStore
+import com.example.tafakkurai.quran.TOTAL_AYAH_COUNT
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.balance.BalanceCalculator
+import com.example.tafakkurai.i18n.LocalStrings
+import com.example.tafakkurai.i18n.formatHeaderDate
+import com.example.tafakkurai.i18n.greetingKey
+import com.example.tafakkurai.i18n.tr
+import com.example.tafakkurai.prayer.currentSecondsOfDay
+import com.example.tafakkurai.prayer.deviceDate
+import com.example.tafakkurai.spiritual.PrefPersistence
+import org.koin.mp.KoinPlatform.getKoin
+
+/**
+ * "Xayrli kech, Aziz" — greeting derived from the device clock, name from the signed-in
+ * profile (cached by [App] so the header still reads correctly offline).
+ *
+ * Both used to come from the `TUSER` mock, which hardcoded "Xayrli tong" (good morning) and
+ * the name "Aziz" regardless of the hour or who was signed in.
+ */
+@Composable
+private fun greetingTitle(): String {
+    val name = remember { getKoin().get<PrefPersistence>().get(AppPrefs.DISPLAY_NAME).orEmpty() }
+    val greeting = tr(greetingKey(currentSecondsOfDay()))
+    return if (name.isBlank()) greeting else "$greeting, $name"
+}
+
+/** Today's date in the active language — "Dushanba, 3-avgust". */
+@Composable
+private fun headerDate(): String = LocalStrings.current.formatHeaderDate(remember { deviceDate(0) })
 
 private val ASPECT = mapOf(
     "spiritual" to "gold", "physical" to "green", "educational" to "purple",
@@ -25,6 +61,7 @@ private data class BlockDef(val key: String, val title: String, val aspect: Stri
 
 private val ALL_BLOCKS = listOf(
     BlockDef("prayer", "Prayer times", "Spiritual", "gold"),
+    BlockDef("quran", "Qurʼan & dhikr", "Spiritual", "green"),
     BlockDef("ai", "AI guidance", "Educational", "purple"),
     BlockDef("plan", "Today's plan", "Productivity", "teal"),
     BlockDef("balance", "Balance", "Spiritual", "cyan"),
@@ -35,10 +72,16 @@ private val ALL_BLOCKS = listOf(
     BlockDef("portfolio", "Portfolio", "Financial", "gold"),
     BlockDef("sleep", "Sleep", "Physical", "green"),
 )
-private val DEFAULT_ORDER = listOf("prayer", "ai", "plan", "balance", "habits")
+private val DEFAULT_ORDER = listOf("prayer", "quran", "ai", "plan", "balance", "habits")
 
 @Composable
-fun TodayScreen(onOpenModule: (String) -> Unit, onCoach: () -> Unit, onProfile: () -> Unit = {}) {
+fun TodayScreen(
+    onOpenModule: (String) -> Unit,
+    onCoach: () -> Unit,
+    onProfile: () -> Unit = {},
+    onOpenPrayer: () -> Unit = {},
+    onOpenQuran: () -> Unit = {},
+) {
     val c = LocalTf.current
     var customize by remember { mutableStateOf(false) }
     val order = remember { mutableStateListOf<String>().apply { addAll(DEFAULT_ORDER) } }
@@ -53,11 +96,11 @@ fun TodayScreen(onOpenModule: (String) -> Unit, onCoach: () -> Unit, onProfile: 
             Column(Modifier.weight(1f)) {
                 Overline("BISMILLAH.")
                 TfText(
-                    "${TUSER.greetingUz}, ${TUSER.name}",
+                    greetingTitle(),
                     color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.display,
                     modifier = Modifier.padding(top = 3.dp),
                 )
-                TfText("$TCITY · ${TUSER.today}", color = c.fg2, size = 13f, modifier = Modifier.padding(top = 2.dp))
+                TfText("$TCITY · ${headerDate()}", color = c.fg2, size = 13f, modifier = Modifier.padding(top = 2.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.then(pressScale({ customize = !customize }, 0.95f))) {
@@ -73,7 +116,7 @@ fun TodayScreen(onOpenModule: (String) -> Unit, onCoach: () -> Unit, onProfile: 
             ScrollScreen {
                 // Hero ring — live, fills clockwise toward the next prayer
                 Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
-                    SalahProgressHero()
+                    SalahProgressHero(onClick = onOpenPrayer)
                 }
                 TfText(
                     "Your day starts at Maghrib — plan mindful of Salah.",
@@ -81,32 +124,101 @@ fun TodayScreen(onOpenModule: (String) -> Unit, onCoach: () -> Unit, onProfile: 
                     align = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 Spacer(Modifier.height(2.dp))
-                order.forEach { key -> TodayBlock(key, onOpenModule, onCoach) }
+                order.forEach { key -> TodayBlock(key, onOpenModule, onCoach, onOpenQuran) }
             }
         }
     }
 }
 
 @Composable
-private fun TodayBlock(key: String, onOpenModule: (String) -> Unit, onCoach: () -> Unit) {
+private fun TodayBlock(
+    key: String,
+    onOpenModule: (String) -> Unit,
+    onCoach: () -> Unit,
+    onOpenQuran: () -> Unit = {},
+) {
     val def = ALL_BLOCKS.first { it.key == key }
     val c = LocalTf.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AspectHeading(def.title, c.named(def.color))
         when (key) {
             "prayer" -> InsetCard {
+                // Live, GPS-calculated schedule — same source the hero ring uses, so
+                // the card and the ring can never disagree. Sunrise is not a salah.
+                val repo = remember { getKoin().get<LocationPrayerScheduleRepository>() }
+                // Completion marks from the shared store, so the card mirrors the ring/tracker.
+                val markStore = remember { getKoin().get<PrayerMarkStore>() }
+                val prayers = repo.schedule(0).filter { it.key != "sunrise" }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TPRAYER_TODAY.forEach { p ->
-                        val on = p.state != "upcoming"
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    prayers.forEach { p ->
+                        // Tap cycles the status: incomplete → on-time → jamaat → incomplete.
+                        // Same shared store the hero ring and tracker use, so all three agree
+                        // and the change is queued for backend sync.
+                        val mark = markStore.stateOf(p.key)
+                        val meta = PRAYER_STATES.getValue(mark.id)
+                        val on = mark != PrayerMark.NONE
+                        Column(
+                            Modifier.weight(1f).then(pressScale({ markStore.cycle(p.key) }, 0.94f)),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
                             Box(
                                 Modifier.size(34.dp).clip(CircleShape)
-                                    .background(if (on) c.green.soft(0.18f) else c.card3),
+                                    .background(if (on) meta.color.soft(0.18f) else c.card3),
                                 contentAlignment = Alignment.Center,
-                            ) { TfIcon(if (on) "checkCircle" else "circle", size = 17, color = if (on) c.green else c.fg3) }
+                            ) { TfIcon(meta.icon, size = 17, color = if (on) meta.color else c.fg3) }
                             TfText(p.name, color = if (on) c.fg else c.fg3, size = 11f, weight = FontWeight.Medium)
                             TfText(p.time, color = c.fg3, size = 10f, family = Fonts.mono)
                         }
+                    }
+                }
+            }
+            // The spiritual dashboard. These aggregates used to be repeated inside the
+            // Qurʼan / Dhikr / Adhkar tabs; they live here now so those screens can answer
+            // "what can I do right now?" and this one answers "how consistent have I been?".
+            // Every number reads from the same shared stores the feature screens write to.
+            "quran" -> {
+                val quran = remember { getKoin().get<QuranProgressStore>() }
+                val dhikr = remember { getKoin().get<DhikrStore>() }
+                val adhkar = remember { getKoin().get<AdhkarStore>() }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        StatTile("${quran.overallPercent}%", "Qurʼan read", c.green)
+                        StatTile(groupThousands(dhikr.todayTotal), "dhikr today", c.gold)
+                        StatTile("${dhikr.streak}", "day streak", c.warn)
+                    }
+                    InsetCard(onClick = onOpenQuran) {
+                        val last = quran.lastRead
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Overline("LAST READ")
+                                TfText(
+                                    if (last != null) "${last.surahName} · Ayah ${last.ayahNumber}" else "Not started yet",
+                                    color = if (last != null) c.fg else c.fg2,
+                                    size = 15f, weight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                                TfText(
+                                    "${quran.totalRead} of $TOTAL_AYAH_COUNT ayahs · ${quran.completedSurahCount} surahs complete",
+                                    color = c.fg3, size = 11.5f, modifier = Modifier.padding(top = 2.dp),
+                                )
+                                ProgressBar(
+                                    quran.overallProgress, c.green,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                )
+                            }
+                            TfIcon("chevronRight", size = 18, color = c.fg3)
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        AdhkarMini("Morning adhkar", "sunrise", adhkar, AdhkarCategory.MORNING, onOpenQuran)
+                        AdhkarMini("Evening adhkar", "sunset", adhkar, AdhkarCategory.EVENING, onOpenQuran)
                     }
                 }
             }
@@ -131,18 +243,73 @@ private fun TodayBlock(key: String, onOpenModule: (String) -> Unit, onCoach: () 
                 }
             }
             "balance" -> InsetCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
-                        RadarChart(TBALANCE.map { it.value }, TBALANCE.map { it.color }, c.sep, size = 150)
-                    }
-                    Column(Modifier.weight(1f).padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TBALANCE.sortedBy { it.value }.forEach { d ->
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(d.color))
-                                TfText(d.label, color = c.fg2, size = 12.5f, modifier = Modifier.weight(1f))
-                                TfText("${(d.value * 100).toInt()}", color = c.fg, size = 12.5f, family = Fonts.mono, weight = FontWeight.SemiBold)
+                // Computed from recorded activity — prayers marked, dhikr counted, ayahs
+                // read, gratitude written. Every store below keeps Compose state, so this
+                // card moves the moment any of them changes.
+                val balance = remember {
+                    BalanceCalculator(
+                        prayers = getKoin().get(),
+                        quran = getKoin().get(),
+                        dhikr = getKoin().get(),
+                        adhkar = getKoin().get(),
+                        gratitude = getKoin().get(),
+                    )
+                }
+                val scores = balance.current()
+                val untracked = scores.count { !it.isTracked }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
+                            RadarChart(
+                                scores.map { it.value ?: 0f },
+                                scores.map { balanceColor(it.key, it.isTracked, c) },
+                                c.sep, size = 150,
+                            )
+                        }
+                        Column(
+                            Modifier.weight(1f).padding(start = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            // Tracked axes first, weakest at the top — that is the one worth
+                            // acting on. Untracked axes sink to the bottom.
+                            scores.sortedWith(compareBy({ !it.isTracked }, { it.value ?: 0f })).forEach { d ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                ) {
+                                    Box(
+                                        Modifier.size(8.dp).clip(CircleShape)
+                                            .background(balanceColor(d.key, d.isTracked, c)),
+                                    )
+                                    TfText(
+                                        d.label,
+                                        color = if (d.isTracked) c.fg2 else c.fg3,
+                                        size = 12.5f, modifier = Modifier.weight(1f),
+                                    )
+                                    TfText(
+                                        d.percent?.toString() ?: "—",
+                                        color = if (d.isTracked) c.fg else c.fg3,
+                                        size = 12.5f, family = Fonts.mono,
+                                        weight = if (d.isTracked) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                }
                             }
                         }
+                    }
+                    // The weakest tracked dimension, with the numbers behind it — so the
+                    // score is explainable rather than a mood.
+                    scores.filter { it.isTracked }.minByOrNull { it.value ?: 1f }?.let { weakest ->
+                        TfText(
+                            "${weakest.label}: ${weakest.detail}",
+                            color = c.fg3, size = 11.5f, lineHeight = 1.45f,
+                        )
+                    }
+                    if (untracked > 0) {
+                        TfText(
+                            "$untracked dimensions aren't tracked yet, so they show “—” " +
+                                "instead of a guess.",
+                            color = c.fg3, size = 11.5f, lineHeight = 1.45f,
+                        )
                     }
                 }
             }
@@ -165,10 +332,22 @@ private fun TodayBlock(key: String, onOpenModule: (String) -> Unit, onCoach: () 
                     }
                 }
             }
-            "gratitude" -> InsetCard {
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    TGRATITUDE_TODAY.forEach { g ->
-                        Pill(g, c.gold, c.gold.soft(0.16f), leading = { TfIcon("leaf", size = 11, color = c.gold) })
+            "gratitude" -> {
+                // Live from the shared journal: what the user wrote today, not a sample.
+                val gratitude = remember { getKoin().get<GratitudeStore>() }
+                val todays = gratitude.today()
+                InsetCard(onClick = { onOpenModule("Gratitude") }) {
+                    if (todays.isEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            TfIcon("leaf", size = 15, color = c.gold)
+                            TfText("Nothing noted yet today — name one small thing.", color = c.fg2, size = 13.5f)
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            todays.take(3).forEach { entry ->
+                                Pill(entry.text, c.gold, c.gold.soft(0.16f), leading = { TfIcon("leaf", size = 11, color = c.gold) })
+                            }
+                        }
                     }
                 }
             }
@@ -218,6 +397,38 @@ private fun TodayBlock(key: String, onOpenModule: (String) -> Unit, onCoach: () 
             }
         }
     }
+}
+
+/** Compact morning/evening adhkar tile — count, ring and a way into the list. */
+@Composable
+private fun RowScope.AdhkarMini(
+    label: String,
+    icon: String,
+    store: AdhkarStore,
+    category: AdhkarCategory,
+    onOpen: () -> Unit,
+) {
+    val c = LocalTf.current
+    val done = store.doneCount(category)
+    val total = store.totalCount(category)
+    Card(Modifier.weight(1f), pad = 13, onClick = onOpen) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            RingGauge(store.progressOf(category), c.green, c.card3, strokeWidth = 4f, size = 36) {
+                TfIcon(icon, size = 15, color = c.gold)
+            }
+            Column(Modifier.weight(1f)) {
+                TfText("$done / $total", color = c.fg, size = 15f, weight = FontWeight.Bold, family = Fonts.mono)
+                TfText(label, color = c.fg3, size = 11f, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** 1234 → "1,234". Kotlin common has no locale formatter and this only needs grouping. */
+private fun groupThousands(value: Int): String {
+    val digits = value.toString()
+    if (digits.length <= 3) return digits
+    return digits.reversed().chunked(3).joinToString(",").reversed()
 }
 
 @Composable
@@ -314,7 +525,7 @@ fun HubScreen(onOpen: (String) -> Unit, onProfile: () -> Unit = {}) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Overline("BISMILLAH.")
-                TfText("${TUSER.greetingUz}, ${TUSER.name}", color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.display, modifier = Modifier.padding(top = 3.dp))
+                TfText(greetingTitle(), color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.display, modifier = Modifier.padding(top = 3.dp))
             }
             UserAvatar(onClick = onProfile)
         }
@@ -322,5 +533,17 @@ fun HubScreen(onOpen: (String) -> Unit, onProfile: () -> Unit = {}) {
             ProactiveCard(TBRIEF.line, modifier = Modifier.padding(horizontal = HPAD.dp))
             HubLauncher(onOpen)
         }
+    }
+}
+
+/** Axis colours. An untracked axis is drawn in the hairline colour, not its own hue. */
+private fun balanceColor(key: String, isTracked: Boolean, c: TfColors): Color {
+    if (!isTracked) return c.sep
+    return when (key) {
+        "physical" -> c.green
+        "social" -> c.cyan
+        "financial" -> c.gold
+        "educational" -> c.purple
+        else -> c.fg
     }
 }

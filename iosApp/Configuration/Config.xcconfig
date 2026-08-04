@@ -1,7 +1,10 @@
 TEAM_ID=
 
 PRODUCT_NAME=TafakkurAI
-PRODUCT_BUNDLE_IDENTIFIER=com.example.tafakkurai.TafakkurAI$(TEAM_ID)
+// Must match APPLE_BUNDLE_ID in backend/.env — it is the `aud` claim of the Apple ID token,
+// and internal/auth/providers.go rejects the token if the two differ. Deliberately not suffixed
+// with $(TEAM_ID): the backend has one fixed audience to verify against.
+PRODUCT_BUNDLE_IDENTIFIER=com.example.tafakkurai.TafakkurAI
 
 CURRENT_PROJECT_VERSION=1
 MARKETING_VERSION=1.0

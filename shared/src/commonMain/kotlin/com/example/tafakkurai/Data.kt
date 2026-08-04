@@ -234,6 +234,11 @@ val TCITY = "Tashkent"
 
 data class BalanceDim(val key: String, val label: String, val value: Float, val color: Color, val desc: String)
 
+/**
+ * Design reference only — the real radar is computed from recorded activity by
+ * `com.example.tafakkurai.balance.computeBalance`. Do NOT render these numbers: they never
+ * move, which is exactly the bug they caused on Today.
+ */
 val TBALANCE = listOf(
     BalanceDim("physical", "Physical", 0.70f, Color(0xFFA8C36A), "Walk, rest, train, drink."),
     BalanceDim("social", "Social", 0.55f, Color(0xFF4CC2FF), "Family, ummah, ties of kinship."),

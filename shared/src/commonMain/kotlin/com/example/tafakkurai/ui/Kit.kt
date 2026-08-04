@@ -126,9 +126,9 @@ fun SectionTitle(title: String, action: String? = null, onAction: () -> Unit = {
 }
 
 @Composable
-fun Overline(text: String, color: Color? = null) {
+fun Overline(text: String, color: Color? = null, modifier: Modifier = Modifier) {
     val c = LocalTf.current
-    TfText(text.uppercase(), color = color ?: c.fg3, size = 10f, weight = FontWeight.SemiBold, family = Fonts.mono, letterSpacing = 0.8f)
+    TfText(text.uppercase(), color = color ?: c.fg3, size = 10f, weight = FontWeight.SemiBold, family = Fonts.mono, letterSpacing = 0.8f, modifier = modifier)
 }
 
 // ── Progress bar ──────────────────────────────────────────────────────────────

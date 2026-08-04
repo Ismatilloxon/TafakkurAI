@@ -1,0 +1,26 @@
+-- One row per ayah the user has read. Ayah-level, not surah-level, so both the
+-- per-surah percentage and the overall Qurʼan percentage are counted from the same
+-- rows and can never disagree. A missing row simply means "not read yet".
+CREATE TABLE quranRead (
+    surah INTEGER NOT NULL,   -- 1..114
+    ayah INTEGER NOT NULL,    -- 1..ayahCount(surah)
+    readAt INTEGER NOT NULL,  -- epoch millis, for "continue reading" recency
+    PRIMARY KEY (surah, ayah)
+);
+
+CREATE INDEX quranRead_surah ON quranRead(surah);
+
+selectAll:
+SELECT surah, ayah FROM quranRead;
+
+countAll:
+SELECT count(*) FROM quranRead;
+
+markRead:
+INSERT OR REPLACE INTO quranRead (surah, ayah, readAt) VALUES (?, ?, ?);
+
+unmarkRead:
+DELETE FROM quranRead WHERE surah = ? AND ayah = ?;
+
+clearAll:
+DELETE FROM quranRead;

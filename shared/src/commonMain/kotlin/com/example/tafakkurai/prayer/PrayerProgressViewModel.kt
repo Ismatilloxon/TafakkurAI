@@ -13,6 +13,8 @@ import kotlin.math.roundToInt
 /** Immutable snapshot the [com.example.tafakkurai.prayer.SalahProgressHero] renders. */
 data class PrayerProgressUiState(
     val fraction: Float = 0f,
+    val currentKey: String = "",
+    val currentName: String = "",
     val nextKey: String = "",
     val nextName: String = "",
     val nextAt: String = "",
@@ -54,6 +56,8 @@ class PrayerProgressViewModel(
         val p = PrayerProgressCalculator.progressAt(service.timeline(), nowMinute)
         return PrayerProgressUiState(
             fraction = p.fraction,
+            currentKey = p.current.key,     // the prayer whose interval we're in — the one you'd complete
+            currentName = p.current.name,
             nextKey = p.next.key,
             nextName = p.next.name,
             nextAt = formatClock(p.next.absoluteMinute),

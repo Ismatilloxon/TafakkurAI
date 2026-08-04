@@ -1,0 +1,20 @@
+-- Current per-day state of each salah: "ontime" | "jamaat" (a missing row = not yet
+-- prayed). One row per (day, prayer); the tap cycle upserts or deletes it. This is the
+-- single source of truth the hero ring, the Today card and the tracker all read.
+CREATE TABLE prayerMark (
+    dateKey TEXT NOT NULL,   -- local calendar day, "yyyy-MM-dd"
+    prayer TEXT NOT NULL,    -- prayer key: fajr | dhuhr | asr | maghrib | isha
+    state TEXT NOT NULL,     -- "ontime" | "jamaat"
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (dateKey, prayer)
+);
+
+selectByDate:
+SELECT prayer, state FROM prayerMark WHERE dateKey = ?;
+
+upsert:
+INSERT OR REPLACE INTO prayerMark (dateKey, prayer, state, updatedAt)
+VALUES (?, ?, ?, ?);
+
+deleteMark:
+DELETE FROM prayerMark WHERE dateKey = ? AND prayer = ?;

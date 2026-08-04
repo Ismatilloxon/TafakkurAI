@@ -8,6 +8,7 @@ import io.ktor.client.plugins.ResponseException
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.logging.LogLevel
@@ -15,6 +16,7 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.request.url
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.encodedPath
@@ -44,6 +46,15 @@ fun createHttpClient(
 
     install(ContentNegotiation) { json(appJson) }
     install(Logging) { level = LogLevel.INFO }
+
+    // Bounds every request so a dead connection surfaces as a Timeout the error mapper can
+    // classify, instead of hanging the loader forever. Streaming calls (the coach SSE) opt
+    // out per-request with `timeout { requestTimeoutMillis = HttpTimeout.INFINITE_TIMEOUT_MS }`.
+    install(HttpTimeout) {
+        requestTimeoutMillis = 30_000
+        connectTimeoutMillis = 15_000
+        socketTimeoutMillis = 30_000
+    }
 
     defaultRequest {
         url(config.baseUrl)
@@ -80,15 +91,25 @@ fun createHttpClient(
         handleResponseExceptionWithRequest { cause, _ ->
             val responseException = cause as? ResponseException ?: return@handleResponseExceptionWithRequest
             val response = responseException.response
-            val envelope = try {
-                response.body<ErrorEnvelopeDto>()
+            // Read the payload once as text, then parse the envelope from it — this keeps the
+            // raw body available for logging (a second body<T>() read would fail).
+            val raw = try {
+                response.bodyAsText()
             } catch (e: Exception) {
                 null
+            }
+            val envelope = raw?.let {
+                try {
+                    appJson.decodeFromString(ErrorEnvelopeDto.serializer(), it)
+                } catch (e: Exception) {
+                    null
+                }
             }
             throw ApiException(
                 code = envelope?.error?.code ?: "http_error",
                 message = envelope?.error?.message ?: (cause.message ?: "request failed"),
                 status = response.status.value,
+                body = raw,
             )
         }
     }

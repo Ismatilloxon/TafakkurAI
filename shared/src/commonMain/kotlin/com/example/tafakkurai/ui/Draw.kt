@@ -107,7 +107,7 @@ fun RingGauge(
     }
 }
 
-/** 5-axis balance radar (TBALANCE). values aligned to labels, each 0..1. */
+/** 5-axis balance radar. Values aligned to the axis order, each 0..1. */
 @Composable
 fun RadarChart(values: List<Float>, colors: List<Color>, grid: Color, size: Int = 220, modifier: Modifier = Modifier) {
     Canvas(modifier.size(size.dp)) {

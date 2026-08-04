@@ -1,0 +1,40 @@
+-- v4 → v5: Gratitude (Shukr) journal storage. Mirrors GratitudeEntry.sq and
+-- GratitudeChallenge.sq so an upgrading install ends up with exactly the schema a
+-- fresh install gets from Schema.create(). IF NOT EXISTS guards the dev case where
+-- a fresh install already created these before this migration existed.
+CREATE TABLE IF NOT EXISTS gratitudeEntry (
+    id TEXT NOT NULL PRIMARY KEY,
+    serverId TEXT,
+    mode TEXT NOT NULL,
+    body TEXT NOT NULL,
+    items TEXT NOT NULL,
+    why TEXT,
+    category TEXT NOT NULL,
+    mood TEXT,
+    emotions TEXT NOT NULL,
+    photoCount INTEGER NOT NULL DEFAULT 0,
+    hasAudio INTEGER NOT NULL DEFAULT 0,
+    hasVideo INTEGER NOT NULL DEFAULT 0,
+    locationLabel TEXT,
+    favourite INTEGER NOT NULL DEFAULT 0,
+    entryDate TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS gratitudeEntry_date ON gratitudeEntry(deleted, entryDate);
+CREATE INDEX IF NOT EXISTS gratitudeEntry_category ON gratitudeEntry(deleted, category);
+
+CREATE TABLE IF NOT EXISTS gratitudeChallenge (
+    challengeId TEXT NOT NULL PRIMARY KEY,
+    joined INTEGER NOT NULL DEFAULT 0,
+    joinedAt INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gratitudeChallengeDay (
+    challengeId TEXT NOT NULL,
+    dayIndex INTEGER NOT NULL,
+    completedAt INTEGER NOT NULL,
+    PRIMARY KEY (challengeId, dayIndex)
+);

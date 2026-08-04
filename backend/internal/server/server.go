@@ -13,6 +13,7 @@ import (
 	"github.com/tafakkur/backend/internal/coach"
 	"github.com/tafakkur/backend/internal/config"
 	"github.com/tafakkur/backend/internal/feed"
+	"github.com/tafakkur/backend/internal/gratitude"
 	"github.com/tafakkur/backend/internal/learn"
 	"github.com/tafakkur/backend/internal/platform"
 	"github.com/tafakkur/backend/internal/prayer"
@@ -26,13 +27,14 @@ type Deps struct {
 	Verifier TokenVerifier
 	Ready    func(ctx context.Context) error
 
-	Auth    *auth.Handler
-	User    *user.Handler
-	Prayer  *prayer.Handler
-	Coach   *coach.Handler
-	Feed    *feed.Handler
-	Learn   *learn.Handler
-	Tracker *tracker.Handler
+	Auth      *auth.Handler
+	User      *user.Handler
+	Prayer    *prayer.Handler
+	Coach     *coach.Handler
+	Feed      *feed.Handler
+	Learn     *learn.Handler
+	Gratitude *gratitude.Handler
+	Tracker   *tracker.Handler
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -67,6 +69,7 @@ func NewRouter(d Deps) http.Handler {
 			d.Feed.Register(pr)
 			d.Learn.Register(pr)
 			d.Tracker.Register(pr)
+			d.Gratitude.Register(pr)
 		})
 	})
 

@@ -1,0 +1,22 @@
+-- Completed morning/evening adhkar. Presence of a row = that item is done for that
+-- day and category, so unchecking is a delete and progress is a row count.
+CREATE TABLE adhkarMark (
+    dateKey TEXT NOT NULL,    -- local calendar day, "yyyy-MM-dd"
+    category TEXT NOT NULL,   -- morning | evening
+    itemId TEXT NOT NULL,
+    PRIMARY KEY (dateKey, category, itemId)
+);
+
+CREATE INDEX adhkarMark_date ON adhkarMark(dateKey);
+
+selectByDate:
+SELECT category, itemId FROM adhkarMark WHERE dateKey = ?;
+
+mark:
+INSERT OR REPLACE INTO adhkarMark (dateKey, category, itemId) VALUES (?, ?, ?);
+
+unmark:
+DELETE FROM adhkarMark WHERE dateKey = ? AND category = ? AND itemId = ?;
+
+clearDay:
+DELETE FROM adhkarMark WHERE dateKey = ?;

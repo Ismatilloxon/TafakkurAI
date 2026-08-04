@@ -1,0 +1,30 @@
+-- Participation in the guided gratitude journeys. The catalogue itself (titles, day
+-- themes) is static in code — only what the user joined and completed is stored, so
+-- the copy can change in an app update without migrating anyone's progress.
+CREATE TABLE gratitudeChallenge (
+    challengeId TEXT NOT NULL PRIMARY KEY,
+    joined INTEGER NOT NULL DEFAULT 0,
+    joinedAt INTEGER NOT NULL
+);
+
+CREATE TABLE gratitudeChallengeDay (
+    challengeId TEXT NOT NULL,
+    dayIndex INTEGER NOT NULL,
+    completedAt INTEGER NOT NULL,
+    PRIMARY KEY (challengeId, dayIndex)
+);
+
+selectAll:
+SELECT challengeId, joined FROM gratitudeChallenge;
+
+setJoined:
+INSERT OR REPLACE INTO gratitudeChallenge (challengeId, joined, joinedAt) VALUES (?, ?, ?);
+
+selectDays:
+SELECT challengeId, dayIndex FROM gratitudeChallengeDay ORDER BY dayIndex;
+
+completeDay:
+INSERT OR REPLACE INTO gratitudeChallengeDay (challengeId, dayIndex, completedAt) VALUES (?, ?, ?);
+
+clearDay:
+DELETE FROM gratitudeChallengeDay WHERE challengeId = ? AND dayIndex = ?;

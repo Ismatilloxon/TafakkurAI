@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +36,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.DisposableEffect
+import com.example.tafakkurai.PrayerTime
 import com.example.tafakkurai.ui.AmbientGlow
 import com.example.tafakkurai.ui.Fonts
 import com.example.tafakkurai.ui.LocalTf
@@ -43,6 +46,9 @@ import com.example.tafakkurai.ui.TfIcon
 import com.example.tafakkurai.ui.TfText
 import com.example.tafakkurai.ui.pressScale
 import com.example.tafakkurai.ui.soft
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlinx.coroutines.launch
 import org.koin.mp.KoinPlatform.getKoin
 import uz.tafakkur.domain.usecase.TrackPrayerUseCase
@@ -61,13 +67,20 @@ fun CircularProgressView(
     strokeWidth: Int = 9,
     color: Color = LocalTf.current.gold,
     track: Color = LocalTf.current.line,
+    snapEpoch: Int = 0,                               // bump to jump to [progress] without animating (e.g. app resume)
     content: @Composable () -> Unit = {},
 ) {
     val target = progress.coerceIn(0f, 1f)
     val anim = remember { Animatable(target) }
-    LaunchedEffect(target) {
-        if (target < anim.value - 0.5f) {
-            anim.snapTo(target)                       // interval rolled over → reset, don't rewind
+    var lastSnapEpoch by remember { mutableStateOf(snapEpoch) }
+    LaunchedEffect(target, snapEpoch) {
+        // Snap (no sweep) when the caller bumped the epoch — a resume must not animate the
+        // ring catching up on the time that passed in the background — or on interval
+        // rollover (1 → 0). Otherwise fill smoothly toward the new target.
+        val snap = snapEpoch != lastSnapEpoch || target < anim.value - 0.5f
+        lastSnapEpoch = snapEpoch
+        if (snap) {
+            anim.snapTo(target)
         } else {
             anim.animateTo(target, tween(900, easing = LinearEasing))
         }
@@ -90,6 +103,72 @@ fun CircularProgressView(
 }
 
 /**
+ * Icon + short label for every prayer, laid out around [ringSize]'s ring at the angle
+ * of its own time: midnight is 12 o'clock, the day runs clockwise. Positions are
+ * derived from [prayers] (`min` = minutes since midnight), so a new schedule — GPS
+ * move, next day, another calculation method — moves the markers with it.
+ *
+ * The box is grown past [ringSize] so labels sitting outside the ring aren't clipped.
+ */
+@Composable
+fun PrayerRingMarkers(
+    prayers: List<PrayerTime>,
+    modifier: Modifier = Modifier,
+    ringSize: Int = 268,
+    strokeWidth: Int = 9,
+    labelGap: Int = 28,
+    highlightKey: String = "",
+) {
+    val c = LocalTf.current
+    // Same geometry the ring itself uses, so a dot lands exactly on the stroke.
+    val ringRadius = ringSize / 2f - (strokeWidth / 2f + 14f)
+    // Ring + a label ring outside it (gap + ~24dp for the icon/label stack itself).
+    val boxSize = (ringSize + labelGap * 2 + 24).dp
+
+    Box(modifier.size(boxSize), contentAlignment = Alignment.Center) {
+        prayers.forEach { p ->
+            val angle = ((p.min / 1440f) * 360f - 90f) * (PI.toFloat() / 180f)
+            val ca = cos(angle)
+            val sa = sin(angle)
+            val on = p.key == highlightKey
+            val tint = when {
+                on -> c.gold
+                p.key == "sunrise" -> c.fg3
+                else -> c.accent
+            }
+
+            // Dot on the ring.
+            Box(
+                Modifier
+                    .offset((ringRadius * ca).dp, (ringRadius * sa).dp)
+                    .size(if (on) 11.dp else 9.dp)
+                    .clip(CircleShape)
+                    .background(c.bg1),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(if (on) 7.dp else 5.dp).clip(CircleShape).background(tint))
+            }
+
+            // Icon + short label just outside the ring.
+            val lr = ringRadius + labelGap
+            Column(
+                Modifier.offset((lr * ca).dp, (lr * sa).dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                TfIcon(p.icon, size = if (on) 16 else 14, color = tint)
+                TfText(
+                    p.short,
+                    color = if (on) c.fg else c.fg3,
+                    size = 10.5f,
+                    weight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+/**
  * Today hero: the live prayer-progress ring. Pulls its [PrayerProgressViewModel],
  * renders the current fill, and forces an immediate recompute whenever the app
  * returns to the foreground so it never shows a stale frame after background.
@@ -97,6 +176,7 @@ fun CircularProgressView(
 @Composable
 fun SalahProgressHero(
     modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
     vm: PrayerProgressViewModel = viewModel { PrayerProgressViewModel(getKoin().get()) },
 ) {
     val c = LocalTf.current
@@ -105,25 +185,38 @@ fun SalahProgressHero(
     val scope = rememberCoroutineScope()
     val trackPrayer = remember { getKoin().get<TrackPrayerUseCase>() }
     val prayerRepository = remember { getKoin().get<LocationPrayerScheduleRepository>() }
-    // Re-arms the button for each prayer interval so the same prayer isn't logged twice.
-    var logged by remember(ui.nextKey) { mutableStateOf(false) }
+    // The current prayer's mark, from the shared store — tapping cycles it and persists.
+    val markStore = remember { getKoin().get<PrayerMarkStore>() }
+    val mark = markStore.stateOf(ui.currentKey)
+
+    // Bumped on resume so the ring jumps to the fresh fraction instead of sweeping to catch up.
+    var snapEpoch by remember { mutableStateOf(0) }
 
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
         val obs = LifecycleEventObserver { _, e ->
             if (e == Lifecycle.Event.ON_RESUME) {
+                snapEpoch++         // snap, don't animate, over the backgrounded gap
                 vm.refresh()
-                // Picks up a permission the user granted from system settings.
-                if (!prayerRepository.hasFix) scope.launch { prayerRepository.refresh() }
+                markStore.refresh() // pick up a date rollover / marks changed elsewhere
+                // Re-fetch every time, not only when there is no fix: it picks up a
+                // permission granted in settings, a move to another city, and a
+                // changed emulator location — all without a reinstall.
+                scope.launch { prayerRepository.refresh() }
             }
         }
         owner.lifecycle.addObserver(obs)
         onDispose { owner.lifecycle.removeObserver(obs) }
     }
 
-    Box(modifier, contentAlignment = Alignment.Center) {
+    // Tapping the ring opens the prayer tracker. The inner "Complete prayer" button
+    // has its own gesture, so it still logs the prayer without opening the tracker.
+    Box(modifier.then(pressScale(onClick, 0.98f)), contentAlignment = Alignment.Center) {
         AmbientGlow(c.gold, opacity = 0.20f)
-        CircularProgressView(progress = ui.fraction, color = c.gold, track = c.line) {
+        // Markers read the same live schedule the ring/card use, so they stay in sync.
+        val schedule = prayerRepository.schedule(0)
+        PrayerRingMarkers(prayers = schedule, highlightKey = ui.currentKey)
+        CircularProgressView(progress = ui.fraction, color = c.gold, track = c.line, snapEpoch = snapEpoch) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -135,7 +228,18 @@ fun SalahProgressHero(
                 )
                 Pill("in ${ui.countdown}", c.accent, c.accent.soft(0.16f))
 
-                val btnColor = if (logged) c.green else c.gold
+                // Tap cycles: Complete prayer → Completed (on time) → Jamaat → Complete prayer.
+                val btnColor = if (mark == PrayerMark.NONE) c.gold else c.green
+                val btnIcon = when (mark) {
+                    PrayerMark.NONE -> "check"
+                    PrayerMark.ONTIME -> "checkCircle"
+                    PrayerMark.JAMAAT -> "users"
+                }
+                val btnLabel = when (mark) {
+                    PrayerMark.NONE -> "Complete prayer"
+                    PrayerMark.ONTIME -> "Completed"
+                    PrayerMark.JAMAAT -> "Jamaat"
+                }
                 Box(
                     Modifier
                         .padding(top = 5.dp)
@@ -143,13 +247,10 @@ fun SalahProgressHero(
                         .background(btnColor.soft(0.16f))
                         .then(
                             pressScale({
-                                if (!logged) {
-                                    logged = true
-                                    scope.launch {
-                                        runCatching { trackPrayer(ui.nextName.lowercase()) }
-                                            .onFailure { logged = false } // let user retry on network error
-                                    }
-                                }
+                                // Local-first: persist the mark immediately (survives restart,
+                                // mirrored to card + tracker). Backend is best-effort, not a gate.
+                                markStore.cycle(ui.currentKey)
+                                scope.launch { runCatching { trackPrayer(ui.currentKey) } }
                             }, 0.94f)
                         )
                         .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -159,11 +260,8 @@ fun SalahProgressHero(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        TfIcon(if (logged) "checkCircle" else "check", size = 14, color = btnColor)
-                        TfText(
-                            if (logged) "Completed" else "Complete prayer",
-                            color = btnColor, size = 13f, weight = FontWeight.SemiBold,
-                        )
+                        TfIcon(btnIcon, size = 14, color = btnColor)
+                        TfText(btnLabel, color = btnColor, size = 13f, weight = FontWeight.SemiBold)
                     }
                 }
             }

@@ -1,0 +1,24 @@
+-- v2 → v3: local-first prayer marks + the sync outbox. Mirrors PrayerMark.sq and SyncOp.sq
+-- so an existing install upgrades to the same schema a fresh install gets from Schema.create().
+-- IF NOT EXISTS guards the dev case where a mid-development fresh install already created these
+-- via Schema.create() before this migration existed; a real v2 install just creates them.
+CREATE TABLE IF NOT EXISTS prayerMark (
+    dateKey TEXT NOT NULL,
+    prayer TEXT NOT NULL,
+    state TEXT NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (dateKey, prayer)
+);
+
+CREATE TABLE IF NOT EXISTS syncOp (
+    id TEXT NOT NULL PRIMARY KEY,
+    entity TEXT NOT NULL,
+    op TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    lastError TEXT,
+    synced INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS syncOp_pending ON syncOp(synced, createdAt);

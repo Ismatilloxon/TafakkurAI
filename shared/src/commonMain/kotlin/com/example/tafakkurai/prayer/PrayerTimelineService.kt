@@ -28,14 +28,13 @@ class StaticPrayerScheduleRepository : PrayerScheduleRepository {
 }
 
 /**
- * Computes the schedule from the device location using [PrayerCalculator]. Call
+ * Computes the schedule from the device location using [IslomUzPrayerCalculator]. Call
  * [refresh] (suspending) to fetch coordinates before rendering; [schedule] stays
  * synchronous so the timeline/ViewModel are untouched. Falls back to [TPRAYERS]
  * until a fix is available or if permission is denied.
  */
 class LocationPrayerScheduleRepository(
     private val locationManager: PrayerLocationManager,
-    private val calculator: PrayerCalculator = PrayerCalculator(),
     private val fallback: PrayerScheduleRepository = StaticPrayerScheduleRepository(),
 ) : PrayerScheduleRepository {
 
@@ -44,6 +43,23 @@ class LocationPrayerScheduleRepository(
      * a fix lands — the permission dialog is answered long after first composition.
      */
     private var coordinates by mutableStateOf<Coordinates?>(null)
+
+    /**
+     * Active calc convention, also Compose state so a settings change recomputes every
+     * screen live. Default = the islom.uz convention (15°/15° twilight, Hanafi Asr,
+     * ±5 min Fajr/Maghrib), so times match the islom.uz app out of the box.
+     * [setConvention] swaps it when the user picks another method/madhab.
+     */
+    private var calculator by mutableStateOf(IslomUzPrayerCalculator())
+
+    /**
+     * Rebuilds the calculator from a user-chosen method + madhab. Unknown values fall
+     * back to the islom.uz convention (see [IslomUzParams.forConvention]). Coordinates
+     * still drive the actual times, so this works wherever the user is.
+     */
+    fun setConvention(calcMethod: String?, madhab: String?) {
+        calculator = IslomUzPrayerCalculator(IslomUzParams.forConvention(calcMethod, madhab))
+    }
 
     /** True once a fix has been obtained, so callers can stop retrying. */
     val hasFix: Boolean get() = coordinates != null
@@ -83,10 +99,14 @@ class PrayerTimelineService(
     private val repository: PrayerScheduleRepository = StaticPrayerScheduleRepository(),
 ) {
     fun timeline(): List<PrayerInstant> {
-        val yesterday = repository.schedule(-1).map { it.toInstant(-1440f) }
-        val today = repository.schedule(0).map { it.toInstant(0f) }
-        val tomorrow = repository.schedule(1).map { it.toInstant(1440f) }
-        return (yesterday + today + tomorrow).sortedBy { it.absoluteMinute }
+        // Sunrise is a landmark, not a salah, so it must not split the Fajr→Dhuhr gap
+        // into two rotations — the ring turns once per *prayer* interval. The card and
+        // the day-list still show sunrise; only the progress segmentation skips it.
+        fun day(offset: Int, shift: Float) =
+            repository.schedule(offset)
+                .filter { it.key != "sunrise" }
+                .map { it.toInstant(shift) }
+        return (day(-1, -1440f) + day(0, 0f) + day(1, 1440f)).sortedBy { it.absoluteMinute }
     }
 
     private fun PrayerTime.toInstant(dayShift: Float) =

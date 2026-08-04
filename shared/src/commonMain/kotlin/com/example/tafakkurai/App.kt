@@ -7,11 +7,21 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.example.tafakkurai.flashcards.ReviewDirection
+import com.example.tafakkurai.i18n.LanguageStore
+import com.example.tafakkurai.i18n.LocalStrings
+import com.example.tafakkurai.i18n.Strings
 import com.example.tafakkurai.prayer.LocationPrayerScheduleRepository
+import com.example.tafakkurai.spiritual.PrefPersistence
+import com.example.tafakkurai.sync.SyncEngine
 import com.example.tafakkurai.flashcards.ReviewFilter
 import com.example.tafakkurai.screens.*
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.onboarding.*
 import com.example.tafakkurai.vm.ThoughtsViewModel
+import uz.tafakkur.core.feedback.silently
+import uz.tafakkur.domain.usecase.GetMeUseCase
+import uz.tafakkur.domain.usecase.IsLoggedInUseCase
+import uz.tafakkur.domain.usecase.PullGratitudeChangesUseCase
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import org.koin.mp.KoinPlatform.getKoin
@@ -41,16 +51,60 @@ fun App() {
     val tweaks = remember { Tweaks() }
     val colors = TfThemes[tweaks.activeThemeKey] ?: TfThemes.getValue("sukut")
 
+    // Onboarding + auth gate, both persisted.
+    //
+    // The token lives in the platform secure store (Keychain / AndroidKeyStore) and the
+    // "carousel seen" flag in the local database, so the three questions this gate asks —
+    // has a language been chosen, has the welcome been seen, is there a session — all survive
+    // a cold launch. While all three were in-memory, every relaunch replayed the whole
+    // onboarding even for a user who had just signed in.
+    val onbAuth = remember { BackendOnboardingAuth(getKoin().get(), getKoin().get()) }
+    val onbGate = remember { PrefOnboardingGate(getKoin().get()) }
+    val isLoggedIn = remember { getKoin().get<IsLoggedInUseCase>() }
+
+    // Persisted interface language. Read before the gate below so a returning user never
+    // sees the picker again, and a fresh install always does.
+    val languages = remember { getKoin().get<LanguageStore>() }
+    // Seeded from the stored token rather than false. An expired access token still counts as
+    // a session: the Ktor auth plugin refreshes it on the first 401 and only clears the tokens
+    // when the refresh itself fails.
+    var authed by remember { mutableStateOf(isLoggedIn()) }
+
     // navigation stack
     val nav = remember { mutableStateListOf("today") }
     var sheetOpen by remember { mutableStateOf(false) }
-    val thoughtsVm: ThoughtsViewModel = viewModel { ThoughtsViewModel(getKoin().get(), getKoin().get(), getKoin().get()) }
+    val thoughtsVm: ThoughtsViewModel =
+        viewModel { ThoughtsViewModel(getKoin().get(), getKoin().get(), getKoin().get(), getKoin().get()) }
 
     // Request user location on launch — prayer times are computed from it.
     // The OS permission dialog resolves asynchronously on both platforms, so keep
     // retrying until a fix lands; until then the schedule uses the bundled fallback.
     val prayerRepository: LocationPrayerScheduleRepository = remember { getKoin().get() }
     LaunchedEffect(Unit) {
+        // Apply the user's saved calc convention (default Uzbekistan 18°/17° + Hanafi
+        // until a profile loads). Best-effort: a signed-out launch just keeps the default.
+        // All launch-time backend work is best-effort and must stay invisible: `silently`
+        // suppresses the global loader and any error snackbar (an offline start should not
+        // greet the user with "No internet"), while still mapping and logging every failure.
+        // Every call in here needs a bearer token, so skip the whole block for a signed-out
+        // launch instead of firing three guaranteed 401s at the backend from the login screen.
+        if (isLoggedIn()) silently {
+            val prefs = getKoin().get<PrefPersistence>()
+            runCatching { getKoin().get<GetMeUseCase>()() }.getOrNull()?.let { me ->
+                prayerRepository.setConvention(me.user.calcMethod, me.user.madhab)
+                // Cached so the Today header greets the real user on the next cold start,
+                // before /v1/me has answered — it used to read a hardcoded name from the mock.
+                prefs.put(AppPrefs.DISPLAY_NAME, me.user.displayName)
+            }
+            // Offline-first: on every app enter, push changes queued while offline to the
+            // backend, then pull what other devices changed. Both are best-effort — a
+            // signed-out or offline launch keeps working entirely from the local database.
+            runCatching { getKoin().get<SyncEngine>().flush() }
+            runCatching {
+                val cursor = getKoin().get<PullGratitudeChangesUseCase>()(prefs.get(AppPrefs.GRATITUDE_CURSOR))
+                prefs.put(AppPrefs.GRATITUDE_CURSOR, cursor)
+            }
+        }
         repeat(LOCATION_ATTEMPTS) {
             if (prayerRepository.refresh()) return@LaunchedEffect
             delay(LOCATION_RETRY_MS)
@@ -76,6 +130,7 @@ fun App() {
         val route = when (name) {
             "Productivity" -> "do"; "Learn" -> "learn"; "Reflect" -> "reflect"
             "Career" -> "career"; "Thoughts" -> "thoughts"; "Finance" -> "finance"
+            "Gratitude" -> "gratitude"
             else -> null
         }
         if (route != null) push(route)
@@ -83,15 +138,27 @@ fun App() {
 
     val isTabRoot = top in TAB_ROOTS
     val showTab = tweaks.nav == "tabs" && isTabRoot
-    val showFab = top !in listOf("coach", "lesson", "compose", "appearance", "profile")
+    // The ayah reader pins its own audio player to the bottom edge — keep the FAB off it.
+    val showFab = top !in listOf("coach", "lesson", "compose", "appearance", "profile") &&
+        !top.startsWith("surah:")
 
     CompositionLocalProvider(
         LocalTf provides colors,
+        LocalStrings provides Strings.of(languages.current),
         LocalProactivity provides tweaks.proactivity,
         LocalSerifHead provides tweaks.serif,
         LocalNavMode provides tweaks.nav,
     ) {
-        Box(Modifier.fillMaxSize().background(colors.bg1)) {
+      // One full-size Box so the global loader + snackbar overlay sits above whichever stage
+      // is showing — language picker, onboarding or the main shell.
+      Box(Modifier.fillMaxSize()) {
+        // Language comes before everything: the carousel, the login copy and every screen
+        // after them are written in whatever is chosen here, so it cannot be asked later.
+        if (!languages.hasChosen) {
+            LanguageScreen(initial = languages.current, onChoose = { languages.choose(it) })
+        } else if (!authed) {
+            OnboardingRoot(auth = onbAuth, gate = onbGate, onFinished = { authed = true })
+        } else Box(Modifier.fillMaxSize().background(colors.bg1)) {
             Column(Modifier.fillMaxSize()) {
                 Box(
                     Modifier.weight(1f).fillMaxWidth()
@@ -124,6 +191,10 @@ fun App() {
                 onFull = { sheetOpen = false; push("coach") },
             )
         }
+
+        // Global loader + snackbar, mounted last so it draws above every screen.
+        GlobalFeedbackHost()
+      }
     }
 }
 
@@ -142,7 +213,7 @@ private fun ScreenHost(
     onLike: (String) -> Unit,
 ) {
     when (route) {
-        "today" -> TodayScreen(onOpenModule = onOpenByModule, onCoach = { onPush("coach") }, onProfile = { onPush("profile") })
+        "today" -> TodayScreen(onOpenModule = onOpenByModule, onCoach = { onPush("coach") }, onProfile = { onPush("profile") }, onOpenPrayer = { onPush("prayer") }, onOpenQuran = { onPush("quran") })
         "hub" -> HubScreen(onOpen = onOpenModule, onProfile = { onPush("profile") })
         "profile" -> ProfileScreen(onBack = onPop)
         "learn" -> LearnScreen(onLesson = { onPush("lesson") }, onSubject = { onPush("subject:${it.id}") })
@@ -159,12 +230,18 @@ private fun ScreenHost(
         "prayer" -> PrayerTrackerScreen(onBack = onPop)
         "tafakkur" -> TafakkurJournalScreen(onBack = onPop)
         "gratitude" -> GratitudeScreen(onBack = onPop)
-        "quran" -> QuranDhikrScreen(onBack = onPop)
+        "quran" -> QuranDhikrScreen(onBack = onPop, onOpenSurah = { onPush("surah:$it") })
         "sleep" -> SleepScreen(onBack = onPop)
         "sport" -> SportGymScreen(onBack = onPop)
         "focus" -> FocusScreen(onBack = onPop)
         "appearance" -> AppearanceScreen(tweaks = tweaks, onBack = onPop)
         else -> when {
+            // Qurʼan reader — one route per surah so the back stack restores the right one.
+            route.startsWith("surah:") -> {
+                val number = route.removePrefix("surah:").toIntOrNull()
+                if (number != null && number in 1..114) AyahReaderScreen(surahNumber = number, onBack = onPop)
+                else QuranDhikrScreen(onBack = onPop, onOpenSurah = { onPush("surah:$it") })
+            }
             route.startsWith("subject:") -> {
                 val sid = route.removePrefix("subject:")
                 // Backend subjects aren't in TSUBJECTS — fall back to a minimal model so the screen still opens.
@@ -197,7 +274,7 @@ private fun ScreenHost(
             else -> {
                 val info = STUB_INFO[route]
                 if (info != null) StubScreen(info = info, onBack = onPop)
-                else TodayScreen(onOpenModule = onOpenByModule, onCoach = { onPush("coach") })
+                else TodayScreen(onOpenModule = onOpenByModule, onCoach = { onPush("coach") }, onOpenPrayer = { onPush("prayer") }, onOpenQuran = { onPush("quran") })
             }
         }
     }

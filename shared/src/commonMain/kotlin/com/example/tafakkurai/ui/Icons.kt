@@ -85,6 +85,19 @@ private val iconMap: Map<String, DrawableResource> = mapOf(
     "zap" to Res.drawable.ic_zap,
     "dumbbell" to Res.drawable.ic_dumbbell,
     "bedDouble" to Res.drawable.ic_bed_double,
+    // Gratitude module
+    "image" to Res.drawable.ic_image,
+    "camera" to Res.drawable.ic_camera,
+    "video" to Res.drawable.ic_video,
+    "mapPin" to Res.drawable.ic_map_pin,
+    "gift" to Res.drawable.ic_gift,
+    "quote" to Res.drawable.ic_quote,
+    "share" to Res.drawable.ic_share,
+    "edit" to Res.drawable.ic_edit,
+    "trash" to Res.drawable.ic_trash,
+    "faceId" to Res.drawable.ic_face_id,
+    "shieldCheck" to Res.drawable.ic_shield_check,
+    "barChart" to Res.drawable.ic_bar_chart,
 )
 
 /** TIcon — stroke icon tinted to [color]. Size in dp. */

@@ -1,0 +1,6 @@
+/* System permission prompts. iOS picks these by DEVICE locale, not by the language chosen
+   inside the app, so they have to be localised here as well as in the Kotlin catalogs. */
+
+"NSLocationWhenInUseUsageDescription" = "TafakkurAI joylashuvingizdan aniq namoz vaqtlarini hisoblash uchun foydalanadi.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "TafakkurAI joylashuvingizdan aniq namoz vaqtlarini hisoblash uchun foydalanadi.";
+"NSPhotoLibraryUsageDescription" = "Profil rasmini oʻrnatishingiz uchun TafakkurAI suratlaringizga kirish soʻraydi.";

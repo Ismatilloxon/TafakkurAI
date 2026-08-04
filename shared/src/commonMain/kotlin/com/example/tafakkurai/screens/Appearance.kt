@@ -14,19 +14,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.Tweaks
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.i18n.tr
 
 @Composable
 fun AppearanceScreen(tweaks: Tweaks, onBack: () -> Unit) {
     val c = LocalTf.current
     Column(Modifier.fillMaxSize()) {
-        BackBar("Appearance", onBack)
+        BackBar(tr("appearance.title"), onBack)
         ScrollBody {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                TfText("Make it yours", color = c.fg, size = 26f, weight = FontWeight.Bold, family = Fonts.display)
-                TfText("Pick a theme — the whole app re-skins instantly. Your dark and light choices are remembered separately.", color = c.fg2, size = 13.5f, lineHeight = 1.5f)
+                TfText(tr("appearance.heading"), color = c.fg, size = 26f, weight = FontWeight.Bold, family = Fonts.display)
+                TfText(tr("appearance.subtitle"), color = c.fg2, size = 13.5f, lineHeight = 1.5f)
             }
             Box(Modifier.padding(horizontal = HPAD.dp)) {
-                Segmented(listOf("dark" to "Dark", "light" to "Light"), tweaks.mode, { tweaks.mode = it })
+                Segmented(listOf("dark" to tr("appearance.dark"), "light" to tr("appearance.light")), tweaks.mode, { tweaks.mode = it })
             }
             val showMode = tweaks.mode
             val selected = if (showMode == "light") tweaks.lightTheme else tweaks.darkTheme

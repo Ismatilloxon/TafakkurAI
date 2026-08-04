@@ -1,0 +1,35 @@
+-- Outbox / sync queue. Every local mutation to user-owned data appends one row here.
+-- On app enter the SyncEngine drains pending rows (synced = 0) to the backend, in order,
+-- marking each synced on success or recording the error for the next attempt. The row id
+-- doubles as an idempotency key so a retry after a flaky network never double-applies.
+CREATE TABLE syncOp (
+    id TEXT NOT NULL PRIMARY KEY,
+    entity TEXT NOT NULL,          -- "prayerMark" | "prayerSettings" | "thought" | "trackerEntry" | ...
+    op TEXT NOT NULL,              -- entity-specific verb, e.g. "ontime" | "jamaat" | "delete"
+    payload TEXT NOT NULL,         -- JSON args for the endpoint
+    createdAt INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    lastError TEXT,
+    synced INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX syncOp_pending ON syncOp(synced, createdAt);
+
+insert:
+INSERT INTO syncOp(id, entity, op, payload, createdAt, attempts, lastError, synced)
+VALUES (?, ?, ?, ?, ?, 0, NULL, 0);
+
+selectPending:
+SELECT id, entity, op, payload FROM syncOp WHERE synced = 0 ORDER BY createdAt ASC LIMIT 200;
+
+markSynced:
+UPDATE syncOp SET synced = 1 WHERE id = ?;
+
+recordFailure:
+UPDATE syncOp SET attempts = attempts + 1, lastError = ? WHERE id = ?;
+
+pendingCount:
+SELECT count(*) FROM syncOp WHERE synced = 0;
+
+deleteSynced:
+DELETE FROM syncOp WHERE synced = 1;

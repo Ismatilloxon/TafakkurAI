@@ -1,0 +1,5 @@
+/* Base copy for the system permission prompts; the other .lproj folders translate these. */
+
+"NSLocationWhenInUseUsageDescription" = "TafakkurAI uses your location to calculate accurate prayer times for where you are.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "TafakkurAI uses your location to calculate accurate prayer times for where you are.";
+"NSPhotoLibraryUsageDescription" = "TafakkurAI needs access to your photos so you can set a profile picture.";

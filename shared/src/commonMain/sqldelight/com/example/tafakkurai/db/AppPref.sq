@@ -1,0 +1,19 @@
+-- Small local key/value bag for single-value user settings that are not worth a
+-- table of their own: last-read position, selected qari, dhikr target. Values are
+-- stored as TEXT and parsed by the owning store.
+CREATE TABLE appPref (
+    prefKey TEXT NOT NULL PRIMARY KEY,
+    prefValue TEXT NOT NULL
+);
+
+selectAll:
+SELECT prefKey, prefValue FROM appPref;
+
+selectOne:
+SELECT prefValue FROM appPref WHERE prefKey = ?;
+
+put:
+INSERT OR REPLACE INTO appPref (prefKey, prefValue) VALUES (?, ?);
+
+remove:
+DELETE FROM appPref WHERE prefKey = ?;

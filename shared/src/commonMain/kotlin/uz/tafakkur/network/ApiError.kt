@@ -9,11 +9,16 @@ data class ErrorEnvelopeDto(val error: ApiErrorDto = ApiErrorDto())
 @Serializable
 data class ApiErrorDto(val code: String = "", val message: String = "")
 
-/** Thrown for any non-2xx response, carrying the backend's code + HTTP status. */
+/**
+ * Thrown for any non-2xx response, carrying the backend's code + HTTP status. [body] is the
+ * raw response payload (when it could be read) so failed requests can be logged in full
+ * without the call site having to re-read the response.
+ */
 class ApiException(
     val code: String,
     override val message: String,
     val status: Int,
+    val body: String? = null,
 ) : Exception(message)
 
 /** One decoded Server-Sent Events frame (used by the coach stream). */

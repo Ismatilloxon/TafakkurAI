@@ -90,7 +90,7 @@ func (h *Handler) track(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type CompleteInput struct {
+type completeRequest struct {
 	Prayer        string   `json:"prayer" validate:"required,oneof=fajr dhuhr asr maghrib isha"`
 	ScheduledTime string   `json:"scheduled_time" validate:"required"`
 	CompletedAt   string   `json:"completed_at" validate:"required"`
@@ -124,7 +124,7 @@ func toCompletionDTO(c Completion) CompletionDTO {
 }
 
 func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
-	var in CompleteInput
+	var in completeRequest
 	if !platform.DecodeAndValidate(w, r, &in) {
 		return
 	}

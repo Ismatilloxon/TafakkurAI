@@ -1,0 +1,123 @@
+-- One row per ayah under memorization. Keyed on the reference, never on the text:
+-- the Arabic and the meaning are resolved through QuranRepository at render time, so
+-- changing mushaf or tarjima reaches the review cards the same instant it reaches the
+-- reader, and a correction to the text can never be stranded in a user row.
+--
+-- The scheduling columns are deliberately identical to `flashcard` — the same Fsrs.next()
+-- grades both, so there is one scheduler in the app and not two to keep in step.
+-- Surah, ayah and the FSRS counters are declared `AS Int`: they are the same numbers the
+-- rest of the app passes around as Int (Ayah.number, CardState.value, Rating.value), and
+-- mapping them here keeps every call site free of .toInt()/.toLong() noise. The timestamps
+-- stay Long — they are epoch millis.
+CREATE TABLE hifzCard (
+    surah      INTEGER AS kotlin.Int NOT NULL,          -- 1..114
+    ayah       INTEGER AS kotlin.Int NOT NULL,          -- 1..ayahCount(surah)
+    addedAt    INTEGER NOT NULL,                 -- epoch millis
+    state      INTEGER AS kotlin.Int NOT NULL DEFAULT 0,-- 0 new · 1 learning · 2 review · 3 relearning
+    stability  REAL    NOT NULL DEFAULT 0,
+    difficulty REAL    NOT NULL DEFAULT 0,
+    due        INTEGER NOT NULL DEFAULT 0,       -- epoch millis
+    lastReview INTEGER,
+    reps       INTEGER AS kotlin.Int NOT NULL DEFAULT 0,
+    lapses     INTEGER AS kotlin.Int NOT NULL DEFAULT 0,
+    lastRating INTEGER AS kotlin.Int,                   -- 1 again · 2 hard · 3 good · 4 easy
+    PRIMARY KEY (surah, ayah)
+);
+
+CREATE INDEX hifzCard_due ON hifzCard(due);
+CREATE INDEX hifzCard_surah ON hifzCard(surah);
+
+-- Every grade, appended. Drives "reviewed today" and the day-by-day streak without
+-- having to derive them from the cards, whose schedule only remembers the last review.
+CREATE TABLE hifzReview (
+    id         TEXT NOT NULL PRIMARY KEY,
+    surah      INTEGER AS kotlin.Int NOT NULL,
+    ayah       INTEGER AS kotlin.Int NOT NULL,
+    rating     INTEGER AS kotlin.Int NOT NULL,
+    reviewedAt INTEGER NOT NULL,
+    intervalDays REAL NOT NULL
+);
+
+CREATE INDEX hifzReview_at ON hifzReview(reviewedAt);
+
+-- cards ------------------------------------------------------------------
+-- OR IGNORE: adding a range that overlaps one already being memorized must never
+-- reset the schedule of the ayahs already in progress.
+insertCard:
+INSERT OR IGNORE INTO hifzCard (surah, ayah, addedAt, due) VALUES (?, ?, :at, :at);
+
+selectAll:
+SELECT * FROM hifzCard ORDER BY surah, ayah;
+
+selectBySurah:
+SELECT * FROM hifzCard WHERE surah = ? ORDER BY ayah;
+
+selectDue:
+SELECT * FROM hifzCard WHERE state != 0 AND due <= :now ORDER BY due LIMIT :limit;
+
+selectNew:
+SELECT * FROM hifzCard WHERE state = 0 ORDER BY surah, ayah LIMIT :limit;
+
+selectOne:
+SELECT * FROM hifzCard WHERE surah = ? AND ayah = ?;
+
+countAll:
+SELECT count(*) FROM hifzCard;
+
+countDue:
+SELECT count(*) FROM hifzCard WHERE state != 0 AND due <= :now;
+
+countNew:
+SELECT count(*) FROM hifzCard WHERE state = 0;
+
+-- "Memorized" is a card that has graduated into review, not a separate flag — the
+-- same rule the reader uses for progress: a state, never a second source of truth.
+countMemorized:
+SELECT count(*) FROM hifzCard WHERE state = 2;
+
+countsBySurah:
+SELECT surah,
+       count(*) AS total,
+       sum(CASE WHEN state = 2 THEN 1 ELSE 0 END) AS memorized,
+       sum(CASE WHEN state != 0 AND due <= :now THEN 1 ELSE 0 END) AS due
+FROM hifzCard
+GROUP BY surah
+ORDER BY surah;
+
+updateSchedule:
+UPDATE hifzCard
+SET state = :state,
+    stability = :stability,
+    difficulty = :difficulty,
+    due = :due,
+    lastReview = :lastReview,
+    reps = reps + 1,
+    lapses = lapses + :lapseInc,
+    lastRating = :lastRating
+WHERE surah = :surah AND ayah = :ayah;
+
+deleteCard:
+DELETE FROM hifzCard WHERE surah = ? AND ayah = ?;
+
+deleteSurah:
+DELETE FROM hifzCard WHERE surah = ?;
+
+clearAll:
+DELETE FROM hifzCard;
+
+-- review log --------------------------------------------------------------
+insertReview:
+INSERT INTO hifzReview (id, surah, ayah, rating, reviewedAt, intervalDays)
+VALUES (?, ?, ?, ?, ?, ?);
+
+countReviewsSince:
+SELECT count(*) FROM hifzReview WHERE reviewedAt >= ?;
+
+reviewDaysSince:
+SELECT DISTINCT reviewedAt / 86400000 AS dayIndex
+FROM hifzReview
+WHERE reviewedAt >= ?
+ORDER BY dayIndex DESC;
+
+clearReviews:
+DELETE FROM hifzReview;

@@ -4,11 +4,16 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Recitation keeps playing when the app is backgrounded or the screen locks. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TafakkurAI needs access to your photos so you can set a profile picture.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Please give us access to our location to calculate prayer time</string>
+	<string>TafakkurAI uses your location to calculate accurate prayer times for where you are.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Please give us access to your location to calculate prayer times</string>
+	<string>TafakkurAI uses your location to calculate accurate prayer times for where you are.</string>
 </dict>
 </plist>

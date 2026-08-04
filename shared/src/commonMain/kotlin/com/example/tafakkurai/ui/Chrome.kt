@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.tafakkurai.i18n.tr
 import androidx.compose.ui.unit.sp
 import com.example.tafakkurai.ChatMsg
 import com.example.tafakkurai.TCHAT
@@ -135,12 +136,13 @@ fun HomeIndicator(modifier: Modifier = Modifier) {
 }
 
 // ── Tab bar ──────────────────────────────────────────────────────────────────
+/** route, icon, label key — the label is a catalog key so the bar follows the chosen language. */
 val TABS = listOf(
-    Triple("today", "sparkles", "Today"),
-    Triple("learn", "bookOpen", "Learn"),
-    Triple("do", "checkSquare", "Do"),
-    Triple("thoughts", "messageCircle", "Thoughts"),
-    Triple("more", "layoutGrid", "More"),
+    Triple("today", "sparkles", "tab.today"),
+    Triple("learn", "bookOpen", "tab.learn"),
+    Triple("do", "checkSquare", "tab.do"),
+    Triple("thoughts", "messageCircle", "tab.thoughts"),
+    Triple("more", "layoutGrid", "tab.more"),
 )
 
 @Composable
@@ -150,7 +152,7 @@ fun TTabBar(active: String, onChange: (String) -> Unit) {
         Modifier.fillMaxWidth().background(c.glass).drawTopHairline(c.sep)
             .padding(top = 9.dp, bottom = 22.dp),
     ) {
-        TABS.forEach { (k, ic, label) ->
+        TABS.forEach { (k, ic, labelKey) ->
             val on = active == k
             val indScale by animateFloatAsState(if (on) 1f else 0.55f, tween(200))
             Column(
@@ -168,7 +170,7 @@ fun TTabBar(active: String, onChange: (String) -> Unit) {
                     }
                     TfIcon(ic, size = 22, color = if (on) c.accent else c.fg3)
                 }
-                TfText(label, color = if (on) c.accent else c.fg3, size = 10f, weight = if (on) FontWeight.SemiBold else FontWeight.Medium)
+                TfText(tr(labelKey), color = if (on) c.accent else c.fg3, size = 10f, weight = if (on) FontWeight.SemiBold else FontWeight.Medium)
             }
         }
     }
