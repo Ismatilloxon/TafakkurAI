@@ -9,6 +9,14 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- Dev only: the backend is served over plain HTTP on the local network. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>TafakkurAI connects to the development server running on your local network.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TafakkurAI needs access to your photos so you can set a profile picture.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

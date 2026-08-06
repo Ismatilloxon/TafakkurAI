@@ -18,6 +18,12 @@ type UserProfileDTO struct {
 	CalcMethod         string   `json:"calc_method"`
 	Interests          []string `json:"interests"`
 	OnboardingComplete bool     `json:"onboarding_complete"`
+
+	// What the sign-in provider could not tell us, so the profile screen knows
+	// which field to ask for: Google/Apple hand over an email and no number,
+	// phone OTP and Telegram the other way round.
+	NeedsPhone bool `json:"needs_phone"`
+	NeedsEmail bool `json:"needs_email"`
 }
 
 type GamificationDTO struct {
@@ -52,6 +58,8 @@ func ToUserProfileDTO(a Account) UserProfileDTO {
 		CalcMethod:         a.Profile.CalcMethod,
 		Interests:          a.Interests,
 		OnboardingComplete: a.Profile.OnboardingDone,
+		NeedsPhone:         a.User.Phone == nil || *a.User.Phone == "",
+		NeedsEmail:         a.User.Email == nil || *a.User.Email == "",
 	}
 	if dto.Interests == nil {
 		dto.Interests = []string{}
@@ -71,6 +79,13 @@ type UpdateProfileInput struct {
 	Gender      *string `json:"gender" validate:"omitempty,oneof=male female other prefer_not"`
 	BirthDate   *string `json:"birth_date" validate:"omitempty,datetime=2006-01-02"`
 	Language    *string `json:"language" validate:"omitempty,min=2,max=10"`
+}
+
+// SetEmailInput completes the profile of an account that signed in by phone or
+// Telegram. The address is not confirmed by a round trip — there is no mail
+// sender wired up — so treat it as contact detail, not as an identity.
+type SetEmailInput struct {
+	Email string `json:"email" validate:"required,email,max=254"`
 }
 
 type ReplaceInterestsInput struct {

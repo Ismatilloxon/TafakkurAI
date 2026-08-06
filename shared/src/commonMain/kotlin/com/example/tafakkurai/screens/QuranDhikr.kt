@@ -44,6 +44,7 @@ import com.example.tafakkurai.adhkar.adhkarFor
 import com.example.tafakkurai.dhikr.DHIKR_CATALOG
 import com.example.tafakkurai.dhikr.DhikrStore
 import com.example.tafakkurai.dhikr.QUICK_TARGETS
+import com.example.tafakkurai.quran.hifz.HifzStore
 import com.example.tafakkurai.quran.AyahReaderViewModel
 import com.example.tafakkurai.quran.BASMALA_MEANING
 import com.example.tafakkurai.quran.AyahUiModel
@@ -75,7 +76,11 @@ import org.koin.mp.KoinPlatform.getKoin
 private val QD_TABS = listOf("quran" to "Qurʼan", "dhikr" to "Dhikr", "adhkar" to "Adhkar")
 
 @Composable
-fun QuranDhikrScreen(onBack: () -> Unit, onOpenSurah: (Int) -> Unit = {}) {
+fun QuranDhikrScreen(
+    onBack: () -> Unit,
+    onOpenSurah: (Int) -> Unit = {},
+    onOpenHifz: () -> Unit = {},
+) {
     var tab by remember { mutableStateOf("quran") }
     Column(Modifier.fillMaxSize()) {
         BackBar("Qurʼan & dhikr", onBack)
@@ -89,7 +94,7 @@ fun QuranDhikrScreen(onBack: () -> Unit, onOpenSurah: (Int) -> Unit = {}) {
             modifier = Modifier.weight(1f).fillMaxWidth(),
         ) { active ->
             when (active) {
-                "quran" -> QuranTab(onOpenSurah)
+                "quran" -> QuranTab(onOpenSurah, onOpenHifz)
                 "dhikr" -> DhikrTab()
                 else -> AdhkarTab()
             }
@@ -100,7 +105,7 @@ fun QuranDhikrScreen(onBack: () -> Unit, onOpenSurah: (Int) -> Unit = {}) {
 // ── Qurʼan tab ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun QuranTab(onOpenSurah: (Int) -> Unit) {
+private fun QuranTab(onOpenSurah: (Int) -> Unit, onOpenHifz: () -> Unit) {
     val c = LocalTf.current
     val vm: QuranViewModel = viewModel { QuranViewModel(getKoin().get(), getKoin().get()) }
     val state by vm.state.collectAsState()
@@ -118,6 +123,7 @@ private fun QuranTab(onOpenSurah: (Int) -> Unit) {
         ) {
             item(key = "continue") { ContinueReadingCard(state, onOpenSurah) }
             item(key = "overall") { OverallProgressCard(state) }
+            item(key = "hifz") { HifzEntryCard(onOpenHifz) }
             item(key = "search") { SurahSearchField(state.query) { vm.onEvent(QuranUiEvent.Search(it)) } }
             item(key = "heading") {
                 SectionTitle(
@@ -218,6 +224,40 @@ private fun OverallProgressCard(state: QuranUiState) {
             }
         }
         ProgressBar(animated, c.green, height = 6, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
+    }
+}
+
+/**
+ * Way into memorization, sitting under the reading progress because that is the order people
+ * arrive in: they read a surah, then decide to hold on to it.
+ *
+ * It reads the card table directly — the numbers are local, so there is nothing to load and
+ * no state for this row to be wrong about.
+ */
+@Composable
+private fun HifzEntryCard(onOpen: () -> Unit) {
+    val c = LocalTf.current
+    val store = remember { getKoin().get<HifzStore>() }
+    // Recomputed on each composition of the tab, which is when a finished session returns.
+    val stats = remember(store) { store.stats() }
+
+    Card(Modifier.fillMaxWidth().padding(horizontal = HPAD.dp), onClick = onOpen) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+            IconBadge("brain", c.gold, size = 46, iconSize = 22)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TfText("Hifz · Yodlash", color = c.fg, size = 16f, weight = FontWeight.SemiBold)
+                TfText(
+                    when {
+                        !stats.hasCards -> "Memorize a surah, an ayah at a time."
+                        stats.due > 0 -> "${stats.due} ${if (stats.due == 1) "ayah" else "ayahs"} to review today"
+                        else -> "${stats.memorized} of ${stats.total} memorized · nothing due"
+                    },
+                    color = c.fg2, size = 12.5f,
+                )
+            }
+            if (stats.due > 0) Pill("${stats.due}", c.gold, c.gold.soft(0.16f))
+            TfIcon("chevronRight", size = 18, color = c.fg3)
+        }
     }
 }
 

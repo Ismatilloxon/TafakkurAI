@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,12 @@ type Service interface {
 	UpdatePrayerSettings(ctx context.Context, userID uuid.UUID, in PrayerSettingsInput) (Account, error)
 	CompleteOnboarding(ctx context.Context, userID uuid.UUID) (Account, error)
 	SetPhoto(ctx context.Context, userID uuid.UUID, url string) (Account, error)
+	// SetPhone / SetEmail complete the contact detail the sign-in provider could
+	// not supply: Google gives an email but never a number, phone OTP the reverse.
+	SetPhone(ctx context.Context, userID uuid.UUID, phone string) (Account, error)
+	SetEmail(ctx context.Context, userID uuid.UUID, email string) (Account, error)
+	// PhoneAvailable lets the caller refuse a number before spending an SMS on it.
+	PhoneAvailable(ctx context.Context, userID uuid.UUID, phone string) (bool, error)
 	PublicProfiles(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]PublicProfile, error)
 }
 
@@ -109,6 +116,24 @@ func (s *service) SetPhoto(ctx context.Context, userID uuid.UUID, url string) (A
 		return Account{}, err
 	}
 	return s.repo.GetAccount(ctx, userID)
+}
+
+func (s *service) SetPhone(ctx context.Context, userID uuid.UUID, phone string) (Account, error) {
+	if err := s.repo.SetPhone(ctx, userID, strings.TrimSpace(phone)); err != nil {
+		return Account{}, err
+	}
+	return s.repo.GetAccount(ctx, userID)
+}
+
+func (s *service) SetEmail(ctx context.Context, userID uuid.UUID, email string) (Account, error) {
+	if err := s.repo.SetEmail(ctx, userID, strings.ToLower(strings.TrimSpace(email))); err != nil {
+		return Account{}, err
+	}
+	return s.repo.GetAccount(ctx, userID)
+}
+
+func (s *service) PhoneAvailable(ctx context.Context, userID uuid.UUID, phone string) (bool, error) {
+	return s.repo.PhoneAvailable(ctx, userID, strings.TrimSpace(phone))
 }
 
 func (s *service) PublicProfiles(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]PublicProfile, error) {

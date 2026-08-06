@@ -1,0 +1,3 @@
+
+# Local dev secrets — production values go through `fly secrets set`.
+.env

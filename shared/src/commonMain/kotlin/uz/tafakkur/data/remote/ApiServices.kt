@@ -8,6 +8,7 @@ import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
@@ -17,9 +18,15 @@ import io.ktor.http.HttpHeaders
 import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import uz.tafakkur.data.dto.HifzCardsResponseDto
+import uz.tafakkur.data.dto.HifzGradeRequestDto
+import uz.tafakkur.data.dto.HifzPlanRequestDto
 import uz.tafakkur.data.dto.CreateEntryRequestDto
 import uz.tafakkur.data.dto.EntriesResponseDto
 import uz.tafakkur.data.dto.GamificationEnvelopeDto
+import uz.tafakkur.data.dto.GooglePollRequestDto
+import uz.tafakkur.data.dto.GooglePollResponseDto
+import uz.tafakkur.data.dto.GoogleStartResponseDto
 import uz.tafakkur.data.dto.LessonDto
 import uz.tafakkur.data.dto.LessonsResponseDto
 import uz.tafakkur.data.dto.LikeResponseDto
@@ -37,6 +44,8 @@ import uz.tafakkur.data.dto.SessionResponseDto
 import uz.tafakkur.data.dto.SocialPostDto
 import uz.tafakkur.data.dto.CoachHistoryDto
 import uz.tafakkur.data.dto.SubjectsResponseDto
+import uz.tafakkur.data.dto.TelegramBotDto
+import uz.tafakkur.data.dto.TelegramVerifyRequestDto
 import uz.tafakkur.data.dto.TrackPrayerRequestDto
 import uz.tafakkur.data.dto.TrackerEntryDto
 import uz.tafakkur.data.dto.UpdateProfileDto
@@ -49,6 +58,18 @@ class AuthApi(private val client: HttpClient) {
 
     suspend fun session(req: SessionRequestDto): SessionResponseDto =
         client.post("v1/auth/session") { setBody(req) }.body()
+
+    suspend fun telegramBot(): TelegramBotDto = client.get("v1/auth/telegram/bot").body()
+
+    // Google runs as a browser round trip: the server hands back a URL to open and a
+    // state to poll on, so no Google SDK is linked into either platform.
+    suspend fun googleStart(): GoogleStartResponseDto = client.post("v1/auth/google/start").body()
+
+    suspend fun googlePoll(state: String): GooglePollResponseDto =
+        client.post("v1/auth/google/poll") { setBody(GooglePollRequestDto(state)) }.body()
+
+    suspend fun telegramVerify(code: String): SessionResponseDto =
+        client.post("v1/auth/telegram/verify") { setBody(TelegramVerifyRequestDto(code)) }.body()
 
     suspend fun logout() {
         client.post("v1/auth/logout")
@@ -166,4 +187,18 @@ class CoachApi(private val client: HttpClient) {
             }
         }
     }
+}
+
+/**
+ * Qurʼan memorization. Separate from [LearnApi] because it is not lesson content: these
+ * endpoints carry one user's schedule, not the shared curriculum.
+ */
+class QuranApi(private val client: HttpClient) {
+    suspend fun hifzCards(): HifzCardsResponseDto = client.get("v1/quran/hifz").body()
+
+    suspend fun gradeHifz(req: HifzGradeRequestDto): GamificationEnvelopeDto =
+        client.post("v1/quran/hifz/grade") { setBody(req) }.body()
+
+    suspend fun setHifzPlan(req: HifzPlanRequestDto): HifzPlanRequestDto =
+        client.put("v1/quran/hifz/plan") { setBody(req) }.body()
 }

@@ -3,6 +3,7 @@ package uz.tafakkur.domain.usecase
 import kotlinx.coroutines.flow.Flow
 import uz.tafakkur.domain.model.AuthProvider
 import uz.tafakkur.domain.model.CoachEvent
+import uz.tafakkur.domain.repository.HifzRepository
 import uz.tafakkur.domain.repository.AuthRepository
 import uz.tafakkur.domain.repository.CoachRepository
 import uz.tafakkur.domain.repository.FeedRepository
@@ -17,6 +18,18 @@ class StartPhoneOtpUseCase(private val repo: AuthRepository) {
 }
 class SignInUseCase(private val repo: AuthRepository) {
     suspend operator fun invoke(provider: AuthProvider) = repo.signIn(provider)
+}
+class GetTelegramBotUseCase(private val repo: AuthRepository) {
+    suspend operator fun invoke() = repo.telegramBot()
+}
+class VerifyTelegramCodeUseCase(private val repo: AuthRepository) {
+    suspend operator fun invoke(code: String) = repo.verifyTelegramCode(code)
+}
+class StartGoogleLoginUseCase(private val repo: AuthRepository) {
+    suspend operator fun invoke() = repo.startGoogleLogin()
+}
+class PollGoogleLoginUseCase(private val repo: AuthRepository) {
+    suspend operator fun invoke(state: String) = repo.pollGoogleLogin(state)
 }
 class LogoutUseCase(private val repo: AuthRepository) {
     suspend operator fun invoke() = repo.logout()
@@ -111,4 +124,17 @@ class CreateTrackerEntryUseCase(private val repo: TrackerRepository) {
 class GetTrackerEntriesUseCase(private val repo: TrackerRepository) {
     suspend operator fun invoke(kind: String, from: String? = null, to: String? = null) =
         repo.list(kind, from, to)
+}
+
+class GradeHifzUseCase(private val repo: HifzRepository) {
+    suspend operator fun invoke(
+        surah: Int,
+        ayah: Int,
+        rating: Int,
+        reviewedAt: Long,
+        state: Int,
+        stability: Double,
+        difficulty: Double,
+        due: Long,
+    ) = repo.grade(surah, ayah, rating, reviewedAt, state, stability, difficulty, due)
 }

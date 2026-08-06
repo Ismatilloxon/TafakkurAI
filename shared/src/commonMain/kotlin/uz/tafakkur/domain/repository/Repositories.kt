@@ -7,18 +7,37 @@ import uz.tafakkur.domain.model.CoachEvent
 import uz.tafakkur.domain.model.CoachHistory
 import uz.tafakkur.domain.model.FeedPage
 import uz.tafakkur.domain.model.Gamification
+import uz.tafakkur.domain.model.GoogleLogin
 import uz.tafakkur.domain.model.Lesson
 import uz.tafakkur.domain.model.LikeResult
 import uz.tafakkur.domain.model.Me
 import uz.tafakkur.domain.model.PrayerTimes
 import uz.tafakkur.domain.model.SocialPost
 import uz.tafakkur.domain.model.Subject
+import uz.tafakkur.domain.model.TelegramBot
 import uz.tafakkur.domain.model.TrackerEntry
 import uz.tafakkur.domain.model.UserProfile
 
 interface AuthRepository {
     suspend fun startPhoneOtp(phone: String): String // returns verificationId
     suspend fun signIn(provider: AuthProvider): AuthSession
+
+    /** Which bot the user should open to get a confirmation code. */
+    suspend fun telegramBot(): TelegramBot
+
+    /** Redeems the code the bot sent after the user shared their contact. */
+    suspend fun verifyTelegramCode(code: String): AuthSession
+
+    /** Begins the browser sign-in: the URL to open, and the state to wait on. */
+    suspend fun startGoogleLogin(): GoogleLogin
+
+    /**
+     * One poll of a pending browser sign-in. Null means the user has not finished
+     * picking an account yet — the expected answer for most of the wait, so it is a
+     * value here rather than an exception.
+     */
+    suspend fun pollGoogleLogin(state: String): AuthSession?
+
     suspend fun logout()
     fun isLoggedIn(): Boolean
 }
@@ -71,4 +90,22 @@ interface LearnRepository {
 interface TrackerRepository {
     suspend fun create(kind: String, payloadJson: String, entryDate: String? = null): TrackerEntry
     suspend fun list(kind: String, from: String? = null, to: String? = null): List<TrackerEntry>
+}
+
+/**
+ * Qurʼan memorization schedule. Only the write path is here: the client is the source of
+ * truth for its own schedule (FSRS runs on-device, offline), and the backend's copy exists
+ * for cross-device restore and for XP — never to tell the device when an ayah is due.
+ */
+interface HifzRepository {
+    suspend fun grade(
+        surah: Int,
+        ayah: Int,
+        rating: Int,
+        reviewedAt: Long,
+        state: Int,
+        stability: Double,
+        difficulty: Double,
+        due: Long,
+    )
 }

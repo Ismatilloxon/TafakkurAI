@@ -33,19 +33,39 @@ var (
 
 // Verifier validates Google and Apple ID tokens against the providers' JWKS.
 type Verifier struct {
-	googleClientID string
-	appleBundleID  string
-	google         *jwksCache
-	apple          *jwksCache
+	googleAudiences []string
+	appleBundleID   string
+	google          *jwksCache
+	apple           *jwksCache
 }
 
 func NewVerifier(cfg config.Config) *Verifier {
 	httpc := &http.Client{Timeout: 10 * time.Second}
+
+	// The browser flow's own client id is always an accepted audience: it is this
+	// server that asked Google for the token, so forgetting to repeat it in
+	// GOOGLE_CLIENT_ID would reject the sign-in the server just performed.
+	auds := append([]string(nil), cfg.GoogleClientIDs...)
+	if cfg.GoogleOAuthClientID != "" {
+		auds = append(auds, cfg.GoogleOAuthClientID)
+	}
+
 	return &Verifier{
-		googleClientID: cfg.GoogleClientID,
-		appleBundleID:  cfg.AppleBundleID,
-		google:         &jwksCache{url: googleJWKSURL, http: httpc, ttl: time.Hour},
-		apple:          &jwksCache{url: appleJWKSURL, http: httpc, ttl: time.Hour},
+		googleAudiences: auds,
+		appleBundleID:   cfg.AppleBundleID,
+		google:          &jwksCache{url: googleJWKSURL, http: httpc, ttl: time.Hour},
+		apple:           &jwksCache{url: appleJWKSURL, http: httpc, ttl: time.Hour},
+	}
+}
+
+// SetJWKSURLs points the verifier at stand-in providers. Tests only — production
+// keys must come from Google and Apple.
+func (v *Verifier) SetJWKSURLs(google, apple string) {
+	if google != "" {
+		v.google.url = google
+	}
+	if apple != "" {
+		v.apple.url = apple
 	}
 }
 
@@ -57,10 +77,10 @@ type oidcClaims struct {
 }
 
 func (v *Verifier) VerifyGoogle(ctx context.Context, idToken string) (user.ProviderIdentity, error) {
-	if v.googleClientID == "" {
+	if len(v.googleAudiences) == 0 {
 		return user.ProviderIdentity{}, ErrProviderNotConfigured
 	}
-	claims, err := verifyOIDC(ctx, v.google, idToken, v.googleClientID, googleIssuers)
+	claims, err := verifyOIDC(ctx, v.google, idToken, v.googleAudiences, googleIssuers)
 	if err != nil {
 		return user.ProviderIdentity{}, err
 	}
@@ -71,7 +91,7 @@ func (v *Verifier) VerifyApple(ctx context.Context, idToken string) (user.Provid
 	if v.appleBundleID == "" {
 		return user.ProviderIdentity{}, ErrProviderNotConfigured
 	}
-	claims, err := verifyOIDC(ctx, v.apple, idToken, v.appleBundleID, []string{appleIssuer})
+	claims, err := verifyOIDC(ctx, v.apple, idToken, []string{v.appleBundleID}, []string{appleIssuer})
 	if err != nil {
 		return user.ProviderIdentity{}, err
 	}
@@ -95,7 +115,7 @@ func toIdentity(provider string, c *oidcClaims) user.ProviderIdentity {
 	return id
 }
 
-func verifyOIDC(ctx context.Context, cache *jwksCache, idToken, audience string, issuers []string) (*oidcClaims, error) {
+func verifyOIDC(ctx context.Context, cache *jwksCache, idToken string, audiences, issuers []string) (*oidcClaims, error) {
 	var claims oidcClaims
 	_, err := jwt.ParseWithClaims(idToken, &claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
@@ -105,11 +125,24 @@ func verifyOIDC(ctx context.Context, cache *jwksCache, idToken, audience string,
 		return cache.key(ctx, kid)
 	},
 		jwt.WithValidMethods([]string{"RS256"}),
-		jwt.WithAudience(audience),
 		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrProviderVerify, err)
+	}
+
+	// Checked here rather than with jwt.WithAudience because that option takes a
+	// single value, and one app legitimately has one Google client id per platform.
+	okAudience := false
+	for _, want := range audiences {
+		for _, got := range claims.Audience {
+			if got == want {
+				okAudience = true
+			}
+		}
+	}
+	if !okAudience {
+		return nil, fmt.Errorf("%w: audience %v is not one of %v", ErrProviderVerify, claims.Audience, audiences)
 	}
 
 	okIssuer := false

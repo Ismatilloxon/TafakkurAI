@@ -1,0 +1,35 @@
+-- v5 → v6: Qurʼan memorization (hifz). Mirrors HifzCard.sq so an upgrading install ends
+-- up with exactly the schema a fresh install gets from Schema.create(). IF NOT EXISTS
+-- guards the dev case where a fresh install already created these before this migration
+-- existed.
+--
+-- The `AS Int` adapters in HifzCard.sq are a Kotlin-side mapping only — SQLite still stores
+-- INTEGER, so the column types written here are the plain ones.
+CREATE TABLE IF NOT EXISTS hifzCard (
+    surah      INTEGER NOT NULL,
+    ayah       INTEGER NOT NULL,
+    addedAt    INTEGER NOT NULL,
+    state      INTEGER NOT NULL DEFAULT 0,
+    stability  REAL    NOT NULL DEFAULT 0,
+    difficulty REAL    NOT NULL DEFAULT 0,
+    due        INTEGER NOT NULL DEFAULT 0,
+    lastReview INTEGER,
+    reps       INTEGER NOT NULL DEFAULT 0,
+    lapses     INTEGER NOT NULL DEFAULT 0,
+    lastRating INTEGER,
+    PRIMARY KEY (surah, ayah)
+);
+
+CREATE INDEX IF NOT EXISTS hifzCard_due ON hifzCard(due);
+CREATE INDEX IF NOT EXISTS hifzCard_surah ON hifzCard(surah);
+
+CREATE TABLE IF NOT EXISTS hifzReview (
+    id         TEXT NOT NULL PRIMARY KEY,
+    surah      INTEGER NOT NULL,
+    ayah       INTEGER NOT NULL,
+    rating     INTEGER NOT NULL,
+    reviewedAt INTEGER NOT NULL,
+    intervalDays REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS hifzReview_at ON hifzReview(reviewedAt);

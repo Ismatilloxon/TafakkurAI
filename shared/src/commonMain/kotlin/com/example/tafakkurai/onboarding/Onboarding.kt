@@ -128,7 +128,10 @@ val ONB_SLIDES: List<Slide> = listOf(
 )
 
 // ── Auth seam ────────────────────────────────────────────────────────────────
-enum class AuthProvider { APPLE, GOOGLE, PHONE }
+enum class AuthProvider { APPLE, GOOGLE, PHONE, TELEGRAM }
+
+/** Which bot to open, and how many digits the code it replies with has. */
+data class TelegramBotInfo(val botUsername: String, val deepLink: String, val codeLength: Int)
 
 /**
  * The onboarding flow talks to auth through this seam only. The demo impl below
@@ -140,8 +143,26 @@ enum class AuthProvider { APPLE, GOOGLE, PHONE }
  * and gate the app root on IsLoggedInUseCase instead of the in-memory flag.
  */
 interface OnboardingAuth {
-    /** Direct providers (Apple / Google). Suspends while "authenticating". */
+    /** Direct providers (Apple). Suspends while "authenticating". */
     suspend fun signInWith(provider: AuthProvider)
+
+    /**
+     * Starts the Google browser sign-in and returns the URL to open. The account chooser
+     * lives on accounts.google.com, so this is a URL and not an SDK call.
+     */
+    suspend fun startGoogleLogin(): String
+
+    /**
+     * Waits for the browser leg of [startGoogleLogin] to finish. False means the user
+     * gave up or the attempt expired — not an error to report.
+     */
+    suspend fun awaitGoogleApproval(): Boolean
+
+    /** Which bot to send the user to. */
+    suspend fun telegramBot(): TelegramBotInfo
+
+    /** Redeems the code the bot replied with after the user shared their contact. */
+    suspend fun verifyTelegramCode(code: String): Boolean
 
     /** Request an SMS code for an E.164 phone (e.g. +998901234567). */
     suspend fun sendOtp(phoneE164: String)
@@ -154,6 +175,24 @@ interface OnboardingAuth {
 class DemoOnboardingAuth : OnboardingAuth {
     override suspend fun signInWith(provider: AuthProvider) {
         delay(800)
+    }
+
+    override suspend fun startGoogleLogin(): String {
+        delay(300)
+        return "https://accounts.google.com/"
+    }
+
+    override suspend fun awaitGoogleApproval(): Boolean {
+        delay(800)
+        return true
+    }
+
+    override suspend fun telegramBot() =
+        TelegramBotInfo("tafakkur_demo_bot", "https://t.me/tafakkur_demo_bot", 6)
+
+    override suspend fun verifyTelegramCode(code: String): Boolean {
+        delay(400)
+        return code.length == 6 && code.all { it.isDigit() }
     }
 
     override suspend fun sendOtp(phoneE164: String) {

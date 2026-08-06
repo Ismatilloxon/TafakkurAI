@@ -32,6 +32,24 @@ data class AuthSession(
     val needsOnboarding: Boolean,
 )
 
+/** Which bot to open for sign-in, and how long the code it hands back is. */
+data class TelegramBot(
+    val username: String,
+    val deepLink: String,
+    val codeLength: Int,
+)
+
+/**
+ * A browser sign-in that has been started but not finished: where to send the user,
+ * and how to wait for them coming back. [state] is opaque and single-use.
+ */
+data class GoogleLogin(
+    val state: String,
+    val authUrl: String,
+    val pollIntervalMs: Long,
+    val expiresInSeconds: Long,
+)
+
 /** Sign-in intent handed to AuthRepository.signIn. */
 sealed interface AuthProvider {
     data class Google(val idToken: String) : AuthProvider

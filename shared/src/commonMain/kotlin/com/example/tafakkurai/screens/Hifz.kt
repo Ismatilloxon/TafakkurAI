@@ -23,7 +23,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tafakkurai.flashcards.Rating
 import com.example.tafakkurai.quran.SURAH_CATALOG
 import com.example.tafakkurai.quran.Surah
-import com.example.tafakkurai.quran.ayahCountOf
 import com.example.tafakkurai.quran.hifz.HifzCardUi
 import com.example.tafakkurai.quran.hifz.HifzSessionUiState
 import com.example.tafakkurai.quran.hifz.HifzSessionViewModel
@@ -45,13 +44,18 @@ import org.koin.mp.KoinPlatform.getKoin
 
 @Composable
 private fun hifzViewModel(): HifzViewModel = viewModel {
-    HifzViewModel(getKoin().get(), getKoin().get(), getKoin().get(), getKoin().getOrNull())
+    HifzViewModel(getKoin().get(), getKoin().get(), getKoin().get(), getKoin().get())
 }
 
 // ── Home ─────────────────────────────────────────────────────────────────────
 
 @Composable
-fun HifzHomeScreen(onBack: () -> Unit, onSetup: () -> Unit, onReview: () -> Unit) {
+fun HifzHomeScreen(
+    onBack: () -> Unit,
+    onSetup: () -> Unit,
+    onReview: () -> Unit,
+    onOpenSurah: (Int) -> Unit,
+) {
     val c = LocalTf.current
     val vm = hifzViewModel()
     // Recompute on every entry: a session just finished changes every number here.
@@ -100,7 +104,13 @@ fun HifzHomeScreen(onBack: () -> Unit, onSetup: () -> Unit, onReview: () -> Unit
                 Modifier.padding(horizontal = HPAD.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                vm.rows.forEach { row -> SurahHifzRow(row) { vm.drop(row.surah.number) } }
+                vm.rows.forEach { row ->
+                    SurahHifzRow(
+                        row,
+                        onOpen = { onOpenSurah(row.surah.number) },
+                        onDrop = { vm.drop(row.surah.number) },
+                    )
+                }
                 AddDashed("Add a surah or range", onSetup)
             }
 
@@ -163,10 +173,11 @@ private fun TodayCard(due: Int, fresh: Int, reciter: String, onReview: () -> Uni
 }
 
 @Composable
-private fun SurahHifzRow(row: HifzSurahRow, onDrop: () -> Unit) {
+private fun SurahHifzRow(row: HifzSurahRow, onOpen: () -> Unit, onDrop: () -> Unit) {
     val c = LocalTf.current
     val p = row.progress
-    Card(Modifier.fillMaxWidth()) {
+    // The row opens the surah in the reader; the x is the only part that doesn't.
+    Card(Modifier.fillMaxWidth(), onClick = onOpen) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
             Box(
                 Modifier.size(46.dp).clip(RoundedCornerShape(13.dp)).background(c.gold.soft(0.14f)),
@@ -411,7 +422,7 @@ fun HifzReviewScreen(onBack: () -> Unit) {
     val vm: HifzSessionViewModel = viewModel {
         HifzSessionViewModel(
             getKoin().get(), getKoin().get(), getKoin().get(),
-            getKoin().get(), getKoin().get(), getKoin().getOrNull(),
+            getKoin().get(), getKoin().get(), getKoin().get(),
         )
     }
     val state by vm.state.collectAsState()

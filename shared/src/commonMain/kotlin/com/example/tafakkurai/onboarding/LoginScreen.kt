@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.tafakkurai.rememberUrlOpener
 import com.example.tafakkurai.ui.*
 import kotlinx.coroutines.launch
 import com.example.tafakkurai.i18n.tr
@@ -43,10 +44,16 @@ import uz.tafakkur.core.feedback.SnackbarType
  * Apple/Google authenticate directly; phone opens number entry.
  */
 @Composable
-fun LoginScreen(auth: OnboardingAuth, onAuthed: () -> Unit, onPhone: () -> Unit) {
+fun LoginScreen(
+    auth: OnboardingAuth,
+    onAuthed: () -> Unit,
+    onPhone: () -> Unit,
+    onTelegram: () -> Unit,
+) {
     val c = LocalTf.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { getKoin().get<SnackbarController>() }
+    val openUrl = rememberUrlOpener()
     var loading by remember { mutableStateOf<AuthProvider?>(null) }
     val busy = loading != null
 
@@ -64,6 +71,31 @@ fun LoginScreen(auth: OnboardingAuth, onAuthed: () -> Unit, onPhone: () -> Unit)
                 // Say so instead of reporting success: the demo stub used to sign the user in
                 // without a token, which is why every screen behind the login wall came up
                 // empty under a "session expired" toast.
+                snackbar.show(SnackbarType.WARNING, textKey = "login.provider_unavailable")
+            } catch (e: Exception) {
+                snackbar.show(SnackbarType.ERROR, textKey = "login.failed")
+            } finally {
+                loading = null
+            }
+        }
+    }
+
+    /**
+     * Google is a browser round trip, not an SDK call: the app opens the account chooser in
+     * the system browser and then waits. It has to be the *system* browser — Google rejects
+     * OAuth started inside an embedded WebView with `disallowed_useragent`.
+     */
+    fun google() {
+        if (busy) return
+        loading = AuthProvider.GOOGLE
+        scope.launch {
+            try {
+                openUrl(auth.startGoogleLogin())
+                // Only after the browser leg finishes does a session exist; until then the
+                // button keeps spinning, so the user knows the app is still expecting them.
+                if (auth.awaitGoogleApproval()) onAuthed()
+                else snackbar.show(SnackbarType.WARNING, textKey = "login.google_timeout")
+            } catch (e: ProviderNotConfigured) {
                 snackbar.show(SnackbarType.WARNING, textKey = "login.provider_unavailable")
             } catch (e: Exception) {
                 snackbar.show(SnackbarType.ERROR, textKey = "login.failed")
@@ -94,6 +126,15 @@ fun LoginScreen(auth: OnboardingAuth, onAuthed: () -> Unit, onPhone: () -> Unit)
 
         // ── Provider buttons ──
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Primary path: no phone number, no third-party SDK — the backend issues a
+            // one-time code and the bot confirms it (POST /v1/auth/telegram/start → /poll).
+            AuthButton(
+                bg = TELEGRAM_BUTTON_BG, border = null, label = "Telegram orqali kirish",
+                labelColor = Color.White, spinnerColor = Color.White,
+                loading = false, enabled = !busy,
+                leading = { TelegramMark(Color.White, 19) },
+                onClick = { if (!busy) onTelegram() },
+            )
             AuthButton(
                 bg = Color.White, border = null, label = tr("login.apple"),
                 labelColor = Color.Black, spinnerColor = Color.Black,
@@ -106,17 +147,11 @@ fun LoginScreen(auth: OnboardingAuth, onAuthed: () -> Unit, onPhone: () -> Unit)
                 labelColor = c.fg, spinnerColor = c.fg,
                 loading = loading == AuthProvider.GOOGLE, enabled = !busy,
                 leading = { GoogleMark(18) },
-                onClick = { direct(AuthProvider.GOOGLE) },
+                onClick = { google() },
             )
-            // The one provider that completes without a third-party SDK: the backend issues and
-            // verifies the code itself (POST /v1/auth/otp/start → /v1/auth/session).
-            AuthButton(
-                bg = c.card, border = c.line, label = tr("login.phone"),
-                labelColor = c.fg, spinnerColor = c.fg,
-                loading = false, enabled = !busy,
-                leading = { PhoneGlyph(c.fg, 18) },
-                onClick = { if (!busy) onPhone() },
-            )
+            // Phone/OTP is intentionally not offered: Telegram covers the same "no third-party
+            // SDK" case without an SMS bill. The screens and endpoints still exist behind
+            // [onPhone] if it is ever brought back.
         }
 
         Spacer(Modifier.height(28.dp))
@@ -178,6 +213,25 @@ fun Spinner(color: Color, size: Int = 18) {
     val a by t.animateFloat(0f, 360f, infiniteRepeatable(tween(750, easing = LinearEasing)), label = "a")
     Canvas(Modifier.size(size.dp)) {
         drawArc(color, startAngle = a, sweepAngle = 270f, useCenter = false, style = Stroke(width = 2.5f, cap = StrokeCap.Round))
+    }
+}
+
+private val TELEGRAM_BUTTON_BG = Color(0xFF2AABEE)
+
+/** Paper-plane mark, drawn rather than bundled — the icon registry has no Telegram entry. */
+@Composable
+private fun TelegramMark(color: Color, size: Int) {
+    Canvas(Modifier.size(size.dp)) {
+        val w = this.size.width
+        val h = this.size.height
+        val plane = Path().apply {
+            moveTo(w * 0.06f, h * 0.46f)
+            lineTo(w * 0.94f, h * 0.10f)
+            lineTo(w * 0.78f, h * 0.90f)
+            lineTo(w * 0.48f, h * 0.62f)
+            close()
+        }
+        drawPath(plane, color)
     }
 }
 

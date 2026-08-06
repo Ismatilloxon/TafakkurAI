@@ -16,7 +16,9 @@ import uz.tafakkur.network.SecureStore
 fun MainViewController() = ComposeUIViewController {
     if (KoinPlatform.getKoinOrNull() == null) {
         initKoin(
-            ApiConfig(baseUrl = "http://localhost:8080/"),
+            // Dev: the Go backend runs on this Mac. A physical device cannot use
+            // localhost, so point it at the Mac's LAN address (same Wi-Fi).
+            ApiConfig(baseUrl = "http://192.168.202.27:8080/"),
             Darwin.create(),
             // Keychain-backed, so the session outlives the process. The default
             // InMemoryTokenProvider dropped it on every launch.

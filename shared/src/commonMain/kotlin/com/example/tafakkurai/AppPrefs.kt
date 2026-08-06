@@ -16,4 +16,10 @@ object AppPrefs {
 
     /** Where the last successful gratitude delta pull stopped. */
     const val GRATITUDE_CURSOR = "gratitude.sync.cursor"
+
+    /**
+     * Written once on first launch after an install. Its absence is how the app detects that
+     * it was reinstalled: this table goes away with the app, the iOS Keychain does not.
+     */
+    const val INSTALL_MARKER = "install.marker"
 }

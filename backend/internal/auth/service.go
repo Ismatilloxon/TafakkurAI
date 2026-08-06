@@ -61,28 +61,40 @@ func (s *Service) CreateSession(ctx context.Context, req SessionRequest) (Sessio
 	if err != nil {
 		return SessionResponse{}, err
 	}
-
-	access, err := s.jwt.IssueAccess(acc.User.ID)
-	if err != nil {
-		return SessionResponse{}, err
-	}
-	refresh, err := s.jwt.IssueRefresh(acc.User.ID)
-	if err != nil {
-		return SessionResponse{}, err
-	}
-
-	return SessionResponse{
-		AccessToken:     access,
-		RefreshToken:    refresh,
-		TokenType:       "Bearer",
-		ExpiresIn:       int64(s.jwt.AccessTTL().Seconds()),
-		User:            user.ToUserProfileDTO(acc),
-		NeedsOnboarding: !acc.Profile.OnboardingDone,
-	}, nil
+	return issueSession(s.jwt, acc)
 }
 
 func (s *Service) StartOTP(ctx context.Context, phone string) (uuid.UUID, error) {
 	return s.otp.Start(ctx, phone)
+}
+
+// StartAddPhone sends a code to a number the signed-in user wants to attach to
+// their account. The number is checked for a clash *before* the SMS goes out, so
+// the user is not asked for a code that could never be redeemed.
+func (s *Service) StartAddPhone(ctx context.Context, userID uuid.UUID, phone string) (uuid.UUID, error) {
+	free, err := s.users.PhoneAvailable(ctx, userID, phone)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if !free {
+		return uuid.Nil, user.ErrPhoneTaken
+	}
+	return s.otp.Start(ctx, phone)
+}
+
+// VerifyAddPhone redeems that code and writes the number onto the account. It
+// deliberately trusts only the number the OTP challenge was created for, never
+// one the client repeats back.
+func (s *Service) VerifyAddPhone(ctx context.Context, userID uuid.UUID, verificationID uuid.UUID, code string) (user.UserProfileDTO, error) {
+	phone, err := s.otp.Verify(ctx, verificationID, code)
+	if err != nil {
+		return user.UserProfileDTO{}, err
+	}
+	acc, err := s.users.SetPhone(ctx, userID, phone)
+	if err != nil {
+		return user.UserProfileDTO{}, err
+	}
+	return user.ToUserProfileDTO(acc), nil
 }
 
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshResponse, error) {

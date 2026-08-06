@@ -29,6 +29,7 @@ func (h *Handler) Register(r chi.Router) {
 	r.Put("/me/profile", h.updateProfile)
 	r.Put("/me/interests", h.replaceInterests)
 	r.Put("/me/prayer-settings", h.updatePrayerSettings)
+	r.Put("/me/email", h.setEmail)
 	r.Post("/me/onboarding/complete", h.completeOnboarding)
 	r.Post("/me/photo", h.uploadPhoto)
 }
@@ -39,6 +40,10 @@ func (h *Handler) respondErr(w http.ResponseWriter, err error) {
 		platform.Error(w, http.StatusNotFound, platform.CodeNotFound, "user not found")
 	case errors.Is(err, ErrHandleTaken):
 		platform.Error(w, http.StatusConflict, platform.CodeConflict, "handle already taken")
+	case errors.Is(err, ErrEmailTaken):
+		platform.Error(w, http.StatusConflict, platform.CodeConflict, "email already linked to another account")
+	case errors.Is(err, ErrPhoneTaken):
+		platform.Error(w, http.StatusConflict, platform.CodeConflict, "phone already linked to another account")
 	default:
 		platform.Error(w, http.StatusInternalServerError, platform.CodeInternal, "internal error")
 	}
@@ -86,6 +91,22 @@ func (h *Handler) updatePrayerSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acc, err := h.svc.UpdatePrayerSettings(r.Context(), platform.MustUserID(r.Context()), in)
+	if err != nil {
+		h.respondErr(w, err)
+		return
+	}
+	platform.JSON(w, http.StatusOK, ToUserProfileDTO(acc))
+}
+
+// setEmail fills in the address for someone who signed in with a phone number
+// or Telegram. The phone side of the same gap needs an SMS round trip and lives
+// in the auth module (POST /v1/me/phone/start).
+func (h *Handler) setEmail(w http.ResponseWriter, r *http.Request) {
+	var in SetEmailInput
+	if !platform.DecodeAndValidate(w, r, &in) {
+		return
+	}
+	acc, err := h.svc.SetEmail(r.Context(), platform.MustUserID(r.Context()), in.Email)
 	if err != nil {
 		h.respondErr(w, err)
 		return

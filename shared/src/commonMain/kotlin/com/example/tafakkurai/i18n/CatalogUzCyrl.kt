@@ -43,6 +43,7 @@ internal val UZ_CYRL: Map<String, String> = mapOf(
     "login.signing_in" to "Кирилмоқда…",
     "login.provider_unavailable" to "Бу кириш усули ҳозирча мавжуд эмас. Телефон рақамингиздан фойдаланинг.",
     "login.failed" to "Киришда хатолик. Қайта уриниб кўринг.",
+    "login.google_timeout" to "Google орқали кириш вақти тугади. Тугмани қайта босинг.",
 
     "phone.overline" to "ТЕЛЕФОН РАҚАМИ",
     "phone.title" to "Рақамингизни киритинг",

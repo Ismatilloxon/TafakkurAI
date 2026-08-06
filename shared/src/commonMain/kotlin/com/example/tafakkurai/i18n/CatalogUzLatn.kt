@@ -43,6 +43,7 @@ internal val UZ_LATN: Map<String, String> = mapOf(
     "login.signing_in" to "Kirilmoqda…",
     "login.provider_unavailable" to "Bu kirish usuli hozircha mavjud emas. Telefon raqamingizdan foydalaning.",
     "login.failed" to "Kirishda xatolik. Qayta urinib koʻring.",
+    "login.google_timeout" to "Google orqali kirish vaqti tugadi. Tugmani qayta bosing.",
 
     "phone.overline" to "TELEFON RAQAMI",
     "phone.title" to "Raqamingizni kiriting",

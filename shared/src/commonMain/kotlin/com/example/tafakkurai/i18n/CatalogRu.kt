@@ -35,6 +35,7 @@ internal val RU: Map<String, String> = mapOf(
     "login.signing_in" to "Вход…",
     "login.provider_unavailable" to "Этот способ входа пока недоступен. Используйте номер телефона.",
     "login.failed" to "Не удалось войти. Попробуйте ещё раз.",
+    "login.google_timeout" to "Время входа через Google истекло. Нажмите кнопку ещё раз.",
 
     "phone.overline" to "НОМЕР ТЕЛЕФОНА",
     "phone.title" to "Введите номер",

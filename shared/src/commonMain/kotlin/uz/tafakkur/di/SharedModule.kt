@@ -12,6 +12,9 @@ import com.example.tafakkurai.gratitude.GratSettingsSyncPayload
 import com.example.tafakkurai.gratitude.GratitudeStore
 import com.example.tafakkurai.i18n.LanguageStore
 import com.example.tafakkurai.flashcards.FlashcardStore
+import com.example.tafakkurai.quran.hifz.HifzGradeSyncPayload
+import com.example.tafakkurai.quran.hifz.HifzPlanner
+import com.example.tafakkurai.quran.hifz.HifzStore
 import com.example.tafakkurai.quran.AudioFileStore
 import com.example.tafakkurai.quran.AyahAudioCache
 import com.example.tafakkurai.quran.AyahAudioPlayer
@@ -65,12 +68,14 @@ import uz.tafakkur.data.remote.FeedApi
 import uz.tafakkur.data.remote.GratitudeApi
 import uz.tafakkur.data.remote.LearnApi
 import uz.tafakkur.data.remote.PrayerApi
+import uz.tafakkur.data.remote.QuranApi
 import uz.tafakkur.data.remote.TrackerApi
 import uz.tafakkur.data.remote.UserApi
 import uz.tafakkur.data.repository.AuthRepositoryImpl
 import uz.tafakkur.data.repository.CoachRepositoryImpl
 import uz.tafakkur.data.repository.FeedRepositoryImpl
 import uz.tafakkur.data.repository.GratitudeRepositoryImpl
+import uz.tafakkur.data.repository.HifzRepositoryImpl
 import uz.tafakkur.data.repository.LearnRepositoryImpl
 import uz.tafakkur.data.repository.PrayerRepositoryImpl
 import uz.tafakkur.data.repository.TrackerRepositoryImpl
@@ -79,6 +84,7 @@ import uz.tafakkur.domain.repository.AuthRepository
 import uz.tafakkur.domain.repository.CoachRepository
 import uz.tafakkur.domain.repository.FeedRepository
 import uz.tafakkur.domain.repository.GratitudeRepository
+import uz.tafakkur.domain.repository.HifzRepository
 import uz.tafakkur.domain.repository.LearnRepository
 import uz.tafakkur.domain.repository.PrayerRepository
 import uz.tafakkur.domain.repository.TrackerRepository
@@ -88,6 +94,7 @@ import uz.tafakkur.domain.usecase.CompleteOnboardingUseCase
 import uz.tafakkur.domain.usecase.CreateTrackerEntryUseCase
 import uz.tafakkur.domain.usecase.CompleteGratitudeChallengeDayUseCase
 import uz.tafakkur.domain.usecase.DeleteGratitudeEntryUseCase
+import uz.tafakkur.domain.usecase.GradeHifzUseCase
 import uz.tafakkur.domain.usecase.GetCoachHistoryUseCase
 import uz.tafakkur.domain.usecase.GetGratitudeInsightsUseCase
 import uz.tafakkur.domain.usecase.GetGratitudePromptsUseCase
@@ -110,6 +117,10 @@ import uz.tafakkur.domain.usecase.ReplaceInterestsUseCase
 import uz.tafakkur.domain.usecase.SendCoachMessageUseCase
 import uz.tafakkur.domain.usecase.SignInUseCase
 import uz.tafakkur.domain.usecase.StartPhoneOtpUseCase
+import uz.tafakkur.domain.usecase.GetTelegramBotUseCase
+import uz.tafakkur.domain.usecase.VerifyTelegramCodeUseCase
+import uz.tafakkur.domain.usecase.StartGoogleLoginUseCase
+import uz.tafakkur.domain.usecase.PollGoogleLoginUseCase
 import uz.tafakkur.domain.usecase.ToggleLikeUseCase
 import uz.tafakkur.domain.usecase.TrackPrayerUseCase
 import uz.tafakkur.domain.usecase.UpdatePrayerSettingsUseCase
@@ -152,6 +163,7 @@ val dataModule = module {
     single { LearnApi(get()) }
     single { TrackerApi(get()) }
     single { GratitudeApi(get()) }
+    single { QuranApi(get()) }
 
     single<AuthRepository> { AuthRepositoryImpl(get(), get(), get()) }
     single<UserRepository> { UserRepositoryImpl(get(), get()) }
@@ -161,6 +173,7 @@ val dataModule = module {
     single<LearnRepository> { LearnRepositoryImpl(get(), get()) }
     single<TrackerRepository> { TrackerRepositoryImpl(get(), get()) }
     single<GratitudeRepository> { GratitudeRepositoryImpl(get(), get()) }
+    single<HifzRepository> { HifzRepositoryImpl(get(), get()) }
 }
 
 /**
@@ -222,6 +235,12 @@ fun quranModule(
     single { DhikrStore(get(), get()) }
     single { AdhkarStore(get()) }
 
+    // Memorization. Singles for the same reason the stores above are: the hifz home, the
+    // setup screen and a running session must read one card table, or the home would show
+    // counts a session had already changed.
+    single { HifzStore(get(), get()) }
+    single { HifzPlanner(get(), get()) }
+
     // Reading the qari through a lambda means changing it takes effect on the next fetch
     // without rebuilding the repository graph.
     single { BundledQuranRepository { get<QuranProgressStore>().reciter } }
@@ -261,6 +280,7 @@ val syncModule = module {
         val joinChallenge = get<JoinGratitudeChallengeUseCase>()
         val completeDay = get<CompleteGratitudeChallengeDayUseCase>()
         val saveGratitudeSettings = get<SaveGratitudeSettingsUseCase>()
+        val gradeHifz = get<GradeHifzUseCase>()
         mapOf(
             // A gratitude entry carries its client id, so create/update/replay all land
             // on the same backend row — the queue can retry as often as it needs to.
@@ -284,6 +304,12 @@ val syncModule = module {
                     GratSettings(p.reminderSlot, p.reminderTime, p.faceId, p.appLock, p.hidePreview, p.cloudSync),
                 )
             },
+            // One op per graded ayah. A whole session done offline drains in order on the
+            // next app enter; the op id is the idempotency key, so a retry cannot double-apply.
+            HifzStore.ENTITY to SyncHandler { _, payload ->
+                val p = syncJson.decodeFromString<HifzGradeSyncPayload>(payload)
+                gradeHifz(p.surah, p.ayah, p.rating, p.at, p.state, p.stability, p.difficulty, p.due)
+            },
             "prayerMark" to SyncHandler { _, payload ->
                 val p = syncJson.decodeFromString<PrayerMarkSyncPayload>(payload)
                 // ontime/jamaat = a completion the backend records; "upcoming" (un-mark) has
@@ -298,6 +324,10 @@ val syncModule = module {
 val domainModule = module {
     factory { StartPhoneOtpUseCase(get()) }
     factory { SignInUseCase(get()) }
+    factory { GetTelegramBotUseCase(get()) }
+    factory { VerifyTelegramCodeUseCase(get()) }
+    factory { StartGoogleLoginUseCase(get()) }
+    factory { PollGoogleLoginUseCase(get()) }
     factory { LogoutUseCase(get()) }
     factory { IsLoggedInUseCase(get()) }
 
@@ -335,6 +365,8 @@ val domainModule = module {
     factory { CompleteGratitudeChallengeDayUseCase(get()) }
     factory { SaveGratitudeSettingsUseCase(get()) }
     factory { PullGratitudeChangesUseCase(get(), get()) }
+
+    factory { GradeHifzUseCase(get()) }
 }
 
 /**

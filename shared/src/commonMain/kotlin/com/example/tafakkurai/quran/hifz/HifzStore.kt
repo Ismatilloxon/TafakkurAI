@@ -14,13 +14,24 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlin.random.Random
 
-/** Outbox payload for one graded ayah — enough for the backend to upsert the schedule. */
+/**
+ * Outbox payload for one graded ayah.
+ *
+ * It carries the schedule FSRS produced on the device, not just the rating. The device is
+ * the source of truth — recomputing the interval on the server would risk two different
+ * answers for one card, and the user only ever sees the device's. Sending it also makes the
+ * server copy complete enough to restore a schedule onto a new phone.
+ */
 @Serializable
 data class HifzGradeSyncPayload(
     val surah: Int,
     val ayah: Int,
     val rating: Int,
     val at: Long,
+    val state: Int,
+    val stability: Double,
+    val difficulty: Double,
+    val due: Long,
 )
 
 /** How far a surah has been taken, counted from the cards themselves. */
@@ -180,7 +191,16 @@ class HifzStore(
             entity = ENTITY,
             op = OP_GRADE,
             payload = syncJson.encodeToString(
-                HifzGradeSyncPayload(card.surah, card.ayah, rating.value, t),
+                HifzGradeSyncPayload(
+                    surah = card.surah,
+                    ayah = card.ayah,
+                    rating = rating.value,
+                    at = t,
+                    state = sched.state.value,
+                    stability = sched.stability,
+                    difficulty = sched.difficulty,
+                    due = sched.dueMillis,
+                ),
             ),
         )
         return sched

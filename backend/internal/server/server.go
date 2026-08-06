@@ -17,6 +17,7 @@ import (
 	"github.com/tafakkur/backend/internal/learn"
 	"github.com/tafakkur/backend/internal/platform"
 	"github.com/tafakkur/backend/internal/prayer"
+	"github.com/tafakkur/backend/internal/quran"
 	"github.com/tafakkur/backend/internal/tracker"
 	"github.com/tafakkur/backend/internal/user"
 )
@@ -35,6 +36,12 @@ type Deps struct {
 	Learn     *learn.Handler
 	Gratitude *gratitude.Handler
 	Tracker   *tracker.Handler
+	Quran     *quran.Handler
+
+	// TelegramWebhook is nil when the bot is disabled or long-polling instead.
+	// It authenticates itself via Telegram's secret-token header, so it is
+	// mounted outside /v1 and outside the bearer-token middleware.
+	TelegramWebhook http.HandlerFunc
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -54,6 +61,14 @@ func NewRouter(d Deps) http.Handler {
 		platform.JSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
 
+	if d.TelegramWebhook != nil {
+		r.Post("/telegram/webhook", d.TelegramWebhook)
+	}
+
+	// Google's redirect lands here from the user's browser with no bearer token,
+	// so it is mounted at the root rather than inside the protected /v1 group.
+	d.Auth.RegisterCallback(r)
+
 	r.Route("/v1", func(r chi.Router) {
 		// Public (no access token required).
 		r.Group(func(pub chi.Router) {
@@ -70,6 +85,7 @@ func NewRouter(d Deps) http.Handler {
 			d.Learn.Register(pr)
 			d.Tracker.Register(pr)
 			d.Gratitude.Register(pr)
+			d.Quran.Register(pr)
 		})
 	})
 

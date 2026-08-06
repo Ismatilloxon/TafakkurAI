@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.map
 import uz.tafakkur.core.feedback.CallInfo
 import uz.tafakkur.core.feedback.FeedbackKeys
 import uz.tafakkur.core.feedback.NetworkExecutor
+import uz.tafakkur.data.dto.HifzGradeRequestDto
 import uz.tafakkur.data.dto.CoachDeltaDto
 import uz.tafakkur.data.dto.CoachDoneDto
 import uz.tafakkur.data.dto.CoachErrorDto
@@ -18,6 +19,7 @@ import uz.tafakkur.data.dto.SessionRequestDto
 import uz.tafakkur.data.dto.TrackPrayerRequestDto
 import uz.tafakkur.data.dto.UpdateProfileDto
 import uz.tafakkur.data.mapper.toDomain
+import uz.tafakkur.data.remote.QuranApi
 import uz.tafakkur.data.remote.AuthApi
 import uz.tafakkur.data.remote.CoachApi
 import uz.tafakkur.data.remote.FeedApi
@@ -31,14 +33,17 @@ import uz.tafakkur.domain.model.CoachEvent
 import uz.tafakkur.domain.model.CoachHistory
 import uz.tafakkur.domain.model.FeedPage
 import uz.tafakkur.domain.model.Gamification
+import uz.tafakkur.domain.model.GoogleLogin
 import uz.tafakkur.domain.model.Lesson
 import uz.tafakkur.domain.model.LikeResult
 import uz.tafakkur.domain.model.Me
 import uz.tafakkur.domain.model.PrayerTimes
 import uz.tafakkur.domain.model.SocialPost
 import uz.tafakkur.domain.model.Subject
+import uz.tafakkur.domain.model.TelegramBot
 import uz.tafakkur.domain.model.TrackerEntry
 import uz.tafakkur.domain.model.UserProfile
+import uz.tafakkur.domain.repository.HifzRepository
 import uz.tafakkur.domain.repository.AuthRepository
 import uz.tafakkur.domain.repository.CoachRepository
 import uz.tafakkur.domain.repository.FeedRepository
@@ -90,6 +95,37 @@ class AuthRepositoryImpl(
             resp.toDomain()
         }
     }
+
+    override suspend fun telegramBot(): TelegramBot =
+        executor.call(CallInfo("GET", "v1/auth/telegram/bot"), showLoader = false) {
+            val r = api.telegramBot()
+            TelegramBot(r.botUsername, r.deepLink, r.codeLength)
+        }
+
+    override suspend fun verifyTelegramCode(code: String): AuthSession =
+        // A wrong code is an expected outcome the screen renders itself, so no toast.
+        executor.call(CallInfo("POST", "v1/auth/telegram/verify"), successKey = FeedbackKeys.LOGIN, reportErrors = false) {
+            val resp = api.telegramVerify(code)
+            tokens.update(resp.accessToken, resp.refreshToken)
+            resp.toDomain()
+        }
+
+    override suspend fun startGoogleLogin(): GoogleLogin =
+        executor.call(CallInfo("POST", "v1/auth/google/start"), showLoader = false) {
+            val r = api.googleStart()
+            GoogleLogin(r.state, r.authUrl, r.pollIntervalMs, r.expiresIn)
+        }
+
+    override suspend fun pollGoogleLogin(state: String): AuthSession? =
+        // No loader and no toast: this runs every couple of seconds behind a screen that
+        // already says it is waiting, and a poll that lands while the user is still in the
+        // browser is the normal case, not a failure worth reporting.
+        executor.call(CallInfo("POST", "v1/auth/google/poll"), showLoader = false, reportErrors = false) {
+            api.googlePoll(state).session?.let { resp ->
+                tokens.update(resp.accessToken, resp.refreshToken)
+                resp.toDomain()
+            }
+        }
 
     override suspend fun logout() {
         // Best-effort: clear local tokens even if the server call fails, and don't nag the
@@ -264,4 +300,29 @@ class TrackerRepositoryImpl(
         executor.call(CallInfo("GET", "v1/trackers/$kind")) {
             api.list(kind, from, to).entries.map { it.toDomain() }
         }
+}
+
+class HifzRepositoryImpl(
+    private val api: QuranApi,
+    private val executor: NetworkExecutor,
+) : HifzRepository {
+
+    // No success toast: these are replayed from the outbox, often several at once after a
+    // session done offline. A snackbar per ayah would be noise, not feedback.
+    override suspend fun grade(
+        surah: Int,
+        ayah: Int,
+        rating: Int,
+        reviewedAt: Long,
+        state: Int,
+        stability: Double,
+        difficulty: Double,
+        due: Long,
+    ) {
+        executor.call(CallInfo("POST", "v1/quran/hifz/grade")) {
+            api.gradeHifz(
+                HifzGradeRequestDto(surah, ayah, rating, reviewedAt, state, stability, difficulty, due),
+            )
+        }
+    }
 }

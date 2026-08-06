@@ -58,9 +58,19 @@ fun App() {
     // has a language been chosen, has the welcome been seen, is there a session — all survive
     // a cold launch. While all three were in-memory, every relaunch replayed the whole
     // onboarding even for a user who had just signed in.
-    val onbAuth = remember { BackendOnboardingAuth(getKoin().get(), getKoin().get()) }
+    val onbAuth = remember {
+        BackendOnboardingAuth(
+            getKoin().get(), getKoin().get(), getKoin().get(),
+            getKoin().get(), getKoin().get(), getKoin().get(),
+        )
+    }
     val onbGate = remember { PrefOnboardingGate(getKoin().get()) }
     val isLoggedIn = remember { getKoin().get<IsLoggedInUseCase>() }
+
+    // A reinstall must land on the login screen. On iOS the Keychain survives the uninstall,
+    // so without this the tokens of the previous install were still there and the gate below
+    // waved a brand-new install straight through. Runs before `authed` is seeded.
+    remember { clearSessionIfReinstalled(getKoin().get(), getKoin().get()) }
 
     // Persisted interface language. Read before the gate below so a returning user never
     // sees the picker again, and a fresh install always does.
@@ -139,7 +149,9 @@ fun App() {
     val isTabRoot = top in TAB_ROOTS
     val showTab = tweaks.nav == "tabs" && isTabRoot
     // The ayah reader pins its own audio player to the bottom edge — keep the FAB off it.
-    val showFab = top !in listOf("coach", "lesson", "compose", "appearance", "profile") &&
+    // A hifz session pins its grade bar there for the same reason, and is meant to be a
+    // screen you are not interrupted on.
+    val showFab = top !in listOf("coach", "lesson", "compose", "appearance", "profile", "hifz:review") &&
         !top.startsWith("surah:")
 
     CompositionLocalProvider(
@@ -154,7 +166,7 @@ fun App() {
       Box(Modifier.fillMaxSize()) {
         // Language comes before everything: the carousel, the login copy and every screen
         // after them are written in whatever is chosen here, so it cannot be asked later.
-        if (!languages.hasChosen) {
+        if (false && !languages.hasChosen) { // TEMPORARY: skip language picker
             LanguageScreen(initial = languages.current, onChoose = { languages.choose(it) })
         } else if (!authed) {
             OnboardingRoot(auth = onbAuth, gate = onbGate, onFinished = { authed = true })
@@ -230,7 +242,21 @@ private fun ScreenHost(
         "prayer" -> PrayerTrackerScreen(onBack = onPop)
         "tafakkur" -> TafakkurJournalScreen(onBack = onPop)
         "gratitude" -> GratitudeScreen(onBack = onPop)
-        "quran" -> QuranDhikrScreen(onBack = onPop, onOpenSurah = { onPush("surah:$it") })
+        "quran" -> QuranDhikrScreen(
+            onBack = onPop,
+            onOpenSurah = { onPush("surah:$it") },
+            onOpenHifz = { onPush("hifz") },
+        )
+        // Memorization. Home, the enrolment picker and a running session are separate routes
+        // so the back stack behaves: leaving a session returns to the home, not to setup.
+        "hifz" -> HifzHomeScreen(
+            onBack = onPop,
+            onSetup = { onPush("hifz:setup") },
+            onReview = { onPush("hifz:review") },
+            onOpenSurah = { onPush("surah:$it") },
+        )
+        "hifz:setup" -> HifzSetupScreen(onBack = onPop, onDone = onPop)
+        "hifz:review" -> HifzReviewScreen(onBack = onPop)
         "sleep" -> SleepScreen(onBack = onPop)
         "sport" -> SportGymScreen(onBack = onPop)
         "focus" -> FocusScreen(onBack = onPop)
@@ -240,7 +266,11 @@ private fun ScreenHost(
             route.startsWith("surah:") -> {
                 val number = route.removePrefix("surah:").toIntOrNull()
                 if (number != null && number in 1..114) AyahReaderScreen(surahNumber = number, onBack = onPop)
-                else QuranDhikrScreen(onBack = onPop, onOpenSurah = { onPush("surah:$it") })
+                else QuranDhikrScreen(
+                    onBack = onPop,
+                    onOpenSurah = { onPush("surah:$it") },
+                    onOpenHifz = { onPush("hifz") },
+                )
             }
             route.startsWith("subject:") -> {
                 val sid = route.removePrefix("subject:")

@@ -14,7 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.tafakkurai.ui.LocalTf
 
-private enum class Step { INTRO, LOGIN, PHONE, OTP }
+private enum class Step { INTRO, LOGIN, TELEGRAM, PHONE, OTP }
 
 /**
  * Drives the onboarding + auth flow: welcome carousel → login → phone → OTP.
@@ -58,6 +58,13 @@ fun OnboardingRoot(
                 // Without this the PHONE/OTP steps below were unreachable — the login screen
                 // had no way to reach them, so the only working sign-in path was dead code.
                 onPhone = { step = Step.PHONE },
+                onTelegram = { step = Step.TELEGRAM },
+            )
+
+            Step.TELEGRAM -> TelegramLoginScreen(
+                auth = auth,
+                onBack = { step = Step.LOGIN },
+                onAuthed = onFinished,
             )
 
             Step.PHONE -> PhoneEntryScreen(

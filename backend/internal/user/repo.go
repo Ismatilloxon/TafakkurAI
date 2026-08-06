@@ -14,8 +14,10 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("user not found")
-	ErrHandleTaken     = errors.New("handle already taken")
+	ErrNotFound    = errors.New("user not found")
+	ErrHandleTaken = errors.New("handle already taken")
+	ErrPhoneTaken  = errors.New("phone already linked to another account")
+	ErrEmailTaken  = errors.New("email already linked to another account")
 )
 
 type Repo struct {
@@ -164,6 +166,66 @@ func (r *Repo) SetPhoto(ctx context.Context, userID uuid.UUID, url string) error
 	_, err := r.pool.Exec(ctx,
 		`UPDATE profiles SET photo_url = $2, updated_at = now() WHERE user_id = $1`, userID, url)
 	return err
+}
+
+// SetPhone attaches an OTP-verified number to an account that signed in some
+// other way (Google/Apple). The NOT EXISTS guard is inside the UPDATE so the
+// check and the write cannot interleave with a second account claiming the same
+// number; a taken number leaves zero rows affected.
+func (r *Repo) SetPhone(ctx context.Context, userID uuid.UUID, phone string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE users SET phone = $2, updated_at = now()
+		WHERE id = $1
+		  AND NOT EXISTS (SELECT 1 FROM users o WHERE o.phone = $2 AND o.id <> $1)`,
+		userID, phone)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	return r.whyNoRows(ctx, userID, ErrPhoneTaken)
+}
+
+// SetEmail is the mirror of SetPhone for an account that signed in by phone or
+// Telegram. Compared case-insensitively, stored lowercased.
+func (r *Repo) SetEmail(ctx context.Context, userID uuid.UUID, email string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE users SET email = $2, updated_at = now()
+		WHERE id = $1
+		  AND NOT EXISTS (SELECT 1 FROM users o WHERE lower(o.email) = lower($2) AND o.id <> $1)`,
+		userID, email)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	return r.whyNoRows(ctx, userID, ErrEmailTaken)
+}
+
+// PhoneAvailable reports whether the number is free for this user to claim. It
+// is advisory — SetPhone re-checks atomically — but it saves sending an SMS for
+// a number that could never be attached.
+func (r *Repo) PhoneAvailable(ctx context.Context, userID uuid.UUID, phone string) (bool, error) {
+	var taken bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE phone = $1 AND id <> $2)`, phone, userID).Scan(&taken)
+	return !taken, err
+}
+
+// whyNoRows separates "no such user" from "the guard rejected it", which are a
+// 404 and a 409 to the client.
+func (r *Repo) whyNoRows(ctx context.Context, userID uuid.UUID, taken error) error {
+	var exists bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, userID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return taken
 }
 
 func (r *Repo) PublicProfiles(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]PublicProfile, error) {

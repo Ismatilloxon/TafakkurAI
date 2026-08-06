@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS hifz_plans;
+DROP TABLE IF EXISTS hifz_cards;

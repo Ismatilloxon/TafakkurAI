@@ -32,6 +32,34 @@ data class OtpStartRequestDto(val phone: String)
 data class OtpStartResponseDto(@SerialName("verification_id") val verificationId: String)
 
 @Serializable
+data class TelegramBotDto(
+    @SerialName("bot_username") val botUsername: String,
+    @SerialName("deep_link") val deepLink: String,
+    @SerialName("code_length") val codeLength: Int,
+)
+
+@Serializable
+data class TelegramVerifyRequestDto(val code: String)
+
+@Serializable
+data class GoogleStartResponseDto(
+    val state: String,
+    @SerialName("auth_url") val authUrl: String,
+    @SerialName("poll_interval_ms") val pollIntervalMs: Long,
+    @SerialName("expires_in") val expiresIn: Long,
+)
+
+@Serializable
+data class GooglePollRequestDto(val state: String)
+
+/** `status` is "pending" until the browser leg finishes; only then is `session` present. */
+@Serializable
+data class GooglePollResponseDto(
+    val status: String,
+    val session: SessionResponseDto? = null,
+)
+
+@Serializable
 data class RefreshRequestDto(@SerialName("refresh_token") val refreshToken: String)
 
 @Serializable
@@ -230,3 +258,45 @@ data class TrackerEntryDto(
 
 @Serializable
 data class EntriesResponseDto(val entries: List<TrackerEntryDto> = emptyList())
+
+// ---------------- Hifz (Qurʼan memorization) ----------------
+
+/**
+ * One graded ayah. The reference and the rating travel; the ayah text never does — the
+ * backend resolves scripture the same way the client does, from the mushaf, not from us.
+ */
+@Serializable
+data class HifzGradeRequestDto(
+    val surah: Int,
+    val ayah: Int,
+    val rating: Int,
+    @SerialName("reviewed_at") val reviewedAt: Long,
+    // The schedule the device computed. The server stores it rather than recomputing it,
+    // so one card can never have two different due dates.
+    val state: Int,
+    val stability: Double,
+    val difficulty: Double,
+    val due: Long,
+)
+
+@Serializable
+data class HifzCardDto(
+    val surah: Int,
+    val ayah: Int,
+    val state: Int,
+    val stability: Double,
+    val difficulty: Double,
+    val due: Long,
+    @SerialName("last_review") val lastReview: Long? = null,
+    val reps: Int = 0,
+    val lapses: Int = 0,
+)
+
+@Serializable
+data class HifzCardsResponseDto(val cards: List<HifzCardDto> = emptyList())
+
+@Serializable
+data class HifzPlanRequestDto(
+    @SerialName("daily_new") val dailyNew: Int,
+    @SerialName("review_cap") val reviewCap: Int,
+)

@@ -15,6 +15,7 @@ const (
 	EventLessonCompleted  Event = "lesson_completed"
 	EventTrackerEntry     Event = "tracker_entry"
 	EventDailyCheckin     Event = "daily_checkin"
+	EventAyahMemorized    Event = "ayah_memorized"
 )
 
 // State mirrors the gamification row.
@@ -29,6 +30,10 @@ type State struct {
 func xpFor(ev Event) int {
 	switch ev {
 	case EventLessonCompleted:
+		return 20
+	// An ayah held in memory is worth a lesson: it is the same order of effort, and it is
+	// awarded once per ayah — when the card graduates — not once per review.
+	case EventAyahMemorized:
 		return 20
 	case EventPrayerTracked:
 		return 10

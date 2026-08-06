@@ -45,6 +45,7 @@ internal val EN: Map<String, String> = mapOf(
     "login.signing_in" to "Signing in…",
     "login.provider_unavailable" to "This sign-in method is not available yet. Use your phone number.",
     "login.failed" to "Sign-in failed. Please try again.",
+    "login.google_timeout" to "Google sign-in timed out. Tap the button again.",
 
     // ── Phone / OTP ──────────────────────────────────────────────────────────
     "phone.overline" to "PHONE NUMBER",
