@@ -65,6 +65,16 @@ class UploadPhotoUseCase(private val repo: UserRepository) {
     suspend operator fun invoke(bytes: ByteArray, filename: String, contentType: String) =
         repo.uploadPhoto(bytes, filename, contentType)
 }
+class SetEmailUseCase(private val repo: UserRepository) {
+    suspend operator fun invoke(email: String) = repo.setEmail(email)
+}
+class StartPhoneAttachUseCase(private val repo: UserRepository) {
+    suspend operator fun invoke(phone: String) = repo.startPhoneAttach(phone)
+}
+class VerifyPhoneAttachUseCase(private val repo: UserRepository) {
+    suspend operator fun invoke(verificationId: String, code: String) =
+        repo.verifyPhoneAttach(verificationId, code)
+}
 
 // ---- Prayer ----
 class GetPrayerTimesUseCase(private val repo: PrayerRepository) {

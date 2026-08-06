@@ -89,6 +89,22 @@ data class UserProfileDto(
     @SerialName("calc_method") val calcMethod: String,
     val interests: List<String> = emptyList(),
     @SerialName("onboarding_complete") val onboardingComplete: Boolean,
+    // Which contact detail the sign-in provider could not supply. Defaulted so an
+    // older backend that does not send them still deserialises.
+    @SerialName("needs_phone") val needsPhone: Boolean = false,
+    @SerialName("needs_email") val needsEmail: Boolean = false,
+)
+
+@Serializable
+data class SetEmailDto(val email: String)
+
+@Serializable
+data class AddPhoneStartDto(val phone: String)
+
+@Serializable
+data class AddPhoneVerifyDto(
+    @SerialName("verification_id") val verificationId: String,
+    val code: String,
 )
 
 @Serializable

@@ -27,6 +27,7 @@ import (
 	"github.com/tafakkur/backend/internal/quran"
 	"github.com/tafakkur/backend/internal/ratelimit"
 	"github.com/tafakkur/backend/internal/server"
+	syncsvc "github.com/tafakkur/backend/internal/sync"
 	"github.com/tafakkur/backend/internal/telegram"
 	"github.com/tafakkur/backend/internal/tracker"
 	"github.com/tafakkur/backend/internal/user"
@@ -132,6 +133,14 @@ func run() error {
 
 	quranH := quran.NewHandler(quran.NewService(quran.NewRepo(pool)), gamSvc)
 
+	// The generic sync platform. Its rate limit is per user and deliberately generous:
+	// a client only calls it every few minutes or when its queue crosses a threshold,
+	// so anything hitting the ceiling is a bug or an attack, not normal use.
+	syncH := syncsvc.NewHandler(
+		syncsvc.NewService(syncsvc.NewRepo(pool), gamSvc),
+		ratelimit.NewPerMinute(cfg.RateSyncPerMin),
+	)
+
 	router := server.NewRouter(server.Deps{
 		Config:          cfg,
 		Verifier:        jwtMgr,
@@ -145,6 +154,7 @@ func run() error {
 		Tracker:         trackerH,
 		Gratitude:       gratitudeH,
 		Quran:           quranH,
+		Sync:            syncH,
 		TelegramWebhook: tgWebhook,
 	})
 

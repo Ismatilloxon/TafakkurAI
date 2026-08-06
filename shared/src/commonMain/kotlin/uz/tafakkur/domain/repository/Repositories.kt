@@ -55,6 +55,15 @@ interface UserRepository {
     suspend fun updatePrayerSettings(city: String?, country: String?, madhab: String, calcMethod: String): UserProfile
     suspend fun completeOnboarding(): UserProfile
     suspend fun uploadPhoto(bytes: ByteArray, filename: String, contentType: String): String
+
+    /** Saves the address a phone/Telegram account signed in without. */
+    suspend fun setEmail(email: String): UserProfile
+
+    /** Sends a code to a number a Google/Apple account wants to add. Returns the verification id. */
+    suspend fun startPhoneAttach(phone: String): String
+
+    /** Redeems that code and attaches the number the challenge was created for. */
+    suspend fun verifyPhoneAttach(verificationId: String, code: String): UserProfile
 }
 
 interface PrayerRepository {

@@ -71,6 +71,21 @@ internal val EN: Map<String, String> = mapOf(
     "profile.city" to "City",
     "profile.coach.name" to "Murabbiy",
     "profile.language_hint" to "The whole app switches instantly.",
+    "profile.phone" to "Phone",
+    "profile.email" to "Email",
+    // ── Finishing the contact detail sign-in could not supply ──
+    "profile.contact.overline" to "FINISH YOUR PROFILE",
+    "profile.contact.phone_title" to "Add your phone number",
+    "profile.contact.phone_hint" to "You signed in with Google, so we don't have a number yet. We'll text you a code to confirm it.",
+    "profile.contact.code_hint" to "Enter the 6-digit code we just sent.",
+    "profile.contact.email_title" to "Add your email",
+    "profile.contact.email_hint" to "You signed in with your phone number, so we don't have an address yet.",
+    "profile.contact.send_code" to "Send code",
+    "profile.contact.confirm" to "Confirm",
+    "profile.contact.save" to "Save",
+    "profile.contact.change_number" to "Use a different number",
+    "profile.contact.email_invalid" to "That doesn't look like an email address.",
+    "profile.contact.failed" to "Couldn't save that. Try again.",
 
     // ── Appearance ───────────────────────────────────────────────────────────
     "appearance.title" to "Appearance",

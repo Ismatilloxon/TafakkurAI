@@ -1,0 +1,194 @@
+-- The generic sync platform's own tables. Nothing here mentions a feature, and
+-- nothing here changes when a feature ships.
+--
+-- Replaces the old `syncOp` outbox, which required a hand-written SyncHandler per
+-- entity and a `when` over entity names in SharedModule. Events are now produced by
+-- database triggers the engine installs itself, so a feature that writes to SQLDelight
+-- is synchronised without knowing this file exists.
+
+-- ---------------------------------------------------------------------------
+-- syncSession: the one row every trigger reads.
+--
+-- Triggers run inside SQLite and cannot see Kotlin state, so the things they need —
+-- who is signed in, what timezone the device is in, and whether capture is currently
+-- on — live in a table. `capture` is what makes pull-apply safe: the engine turns it
+-- off while writing rows that came FROM the server, otherwise applying a pulled row
+-- would emit an event, push it back, and loop forever.
+-- ---------------------------------------------------------------------------
+CREATE TABLE syncSession (
+    id       INTEGER NOT NULL PRIMARY KEY CHECK (id = 0),
+    userId   TEXT NOT NULL DEFAULT '',
+    timezone TEXT NOT NULL DEFAULT 'UTC',
+    capture  INTEGER NOT NULL DEFAULT 0
+);
+
+-- ---------------------------------------------------------------------------
+-- syncEvent: the outbox. One row per changed entity row, never one per tap.
+--
+-- The partial unique index on (dedupeKey) WHERE status='pending' is the coalescing
+-- mechanism: the trigger's upsert collides with any pending event for the same row
+-- and overwrites it, so a thousand dhikr increments leave exactly one pending event.
+-- It is partial on purpose — an event already in flight must NOT be overwritten by a
+-- new local change, or acking the in-flight one would wrongly discard the newer edit.
+-- ---------------------------------------------------------------------------
+CREATE TABLE syncEvent (
+    id         TEXT NOT NULL PRIMARY KEY,  -- uuid v4, the server's idempotency key
+    userId     TEXT NOT NULL,
+    feature    TEXT NOT NULL,
+    entity     TEXT NOT NULL,              -- source table name
+    entityId   TEXT NOT NULL,              -- primary-key values joined with char(31)
+    operation  TEXT NOT NULL,              -- insert | update | delete
+    dedupeKey  TEXT NOT NULL,              -- userId + entity + entityId
+    payload    TEXT,                       -- materialized at flush, not at write time
+    metadata   TEXT,
+    deviceTime INTEGER NOT NULL,           -- epoch millis, device clock
+    timezone   TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',   -- pending | inflight
+    retryCount INTEGER NOT NULL DEFAULT 0,
+    lastError  TEXT,
+    createdAt  INTEGER NOT NULL,
+    updatedAt  INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX syncEvent_dedupe ON syncEvent(dedupeKey) WHERE status = 'pending';
+CREATE INDEX syncEvent_claim ON syncEvent(userId, status, createdAt);
+
+-- ---------------------------------------------------------------------------
+-- syncCursor: how far this device has pulled, per account. Keyed by user so signing
+-- back into a second account does not resume from the first account's cursor.
+-- ---------------------------------------------------------------------------
+CREATE TABLE syncCursor (
+    userId TEXT NOT NULL PRIMARY KEY,
+    cursor INTEGER NOT NULL DEFAULT 0,
+    pulledAt INTEGER NOT NULL DEFAULT 0
+);
+
+-- ---------------------------------------------------------------------------
+-- syncPolicy: the ONLY per-feature knob, and it is optional.
+--
+-- Absent entity  → synced, feature name = table name, last-write-wins.
+-- Present row    → override the feature label, or opt the table out entirely.
+--
+-- Opting out is for device-local tables (caches, downloaded audio indexes) that
+-- would waste bandwidth. Note the default is opt-IN: a new table nobody thought
+-- about syncs, which is the behaviour that makes "never implement sync again" true.
+-- ---------------------------------------------------------------------------
+CREATE TABLE syncPolicy (
+    entity  TEXT NOT NULL PRIMARY KEY,
+    feature TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
+
+-- ---------------------------------------------------------------------------
+-- syncMetric: counters for the health of the queue itself.
+-- ---------------------------------------------------------------------------
+CREATE TABLE syncMetric (
+    name  TEXT NOT NULL PRIMARY KEY,
+    value INTEGER NOT NULL DEFAULT 0
+);
+
+-- ==== session ====
+
+seedSession:
+INSERT OR IGNORE INTO syncSession(id, userId, timezone, capture) VALUES (0, '', 'UTC', 0);
+
+setSession:
+UPDATE syncSession SET userId = ?, timezone = ? WHERE id = 0;
+
+setCapture:
+UPDATE syncSession SET capture = ? WHERE id = 0;
+
+currentUser:
+SELECT userId FROM syncSession WHERE id = 0;
+
+-- ==== outbox ====
+
+pendingCount:
+SELECT count(*) FROM syncEvent WHERE userId = ? AND status = 'pending';
+
+-- Claim the oldest pending events for this account. Marking them inflight (rather
+-- than reading them in place) means a local change arriving mid-upload creates a NEW
+-- pending row instead of mutating the one being sent.
+claim:
+UPDATE syncEvent SET status = 'inflight', updatedAt = ?
+WHERE id IN (
+    SELECT id FROM syncEvent
+    WHERE userId = ? AND status = 'pending'
+    ORDER BY createdAt ASC
+    LIMIT ?
+);
+
+selectInflight:
+SELECT id, userId, feature, entity, entityId, operation, payload, metadata, deviceTime, timezone, retryCount
+FROM syncEvent
+WHERE userId = ? AND status = 'inflight'
+ORDER BY createdAt ASC;
+
+setPayload:
+UPDATE syncEvent SET payload = ? WHERE id = ?;
+
+-- Delivered (or rejected as permanently invalid): the row has done its job.
+ack:
+DELETE FROM syncEvent WHERE id = ?;
+
+-- Not delivered. Drop it back to pending unless a newer pending event for the same
+-- row already exists — in that case the newer one supersedes it and this row would
+-- violate the partial unique index.
+requeueSupersededDrop:
+DELETE FROM syncEvent
+WHERE status = 'inflight' AND id = ?
+  AND dedupeKey IN (SELECT dedupeKey FROM syncEvent WHERE status = 'pending');
+
+requeue:
+UPDATE syncEvent
+SET status = 'pending', retryCount = retryCount + 1, lastError = ?, updatedAt = ?
+WHERE id = ? AND status = 'inflight';
+
+-- Crash recovery, run once at startup: anything left inflight was never acked.
+recoverInflightDrop:
+DELETE FROM syncEvent
+WHERE status = 'inflight'
+  AND dedupeKey IN (SELECT dedupeKey FROM syncEvent WHERE status = 'pending');
+
+recoverInflight:
+UPDATE syncEvent SET status = 'pending', updatedAt = ? WHERE status = 'inflight';
+
+-- Poison-pill guard. An event that has failed this many times is dropped rather than
+-- retried forever: keeping it would block nothing (the queue is not ordered per row)
+-- but it would resend the same rejected payload on every flush for the life of the app.
+dropExhausted:
+DELETE FROM syncEvent WHERE retryCount >= ?;
+
+deleteForUser:
+DELETE FROM syncEvent WHERE userId = ?;
+
+-- ==== cursor ====
+
+cursorFor:
+SELECT cursor FROM syncCursor WHERE userId = ?;
+
+saveCursor:
+INSERT OR REPLACE INTO syncCursor(userId, cursor, pulledAt) VALUES (?, ?, ?);
+
+deleteCursorFor:
+DELETE FROM syncCursor WHERE userId = ?;
+
+-- ==== policy ====
+
+policies:
+SELECT entity, feature, enabled FROM syncPolicy;
+
+upsertPolicy:
+INSERT OR REPLACE INTO syncPolicy(entity, feature, enabled) VALUES (?, ?, ?);
+
+-- ==== metrics ====
+
+bumpMetric:
+INSERT INTO syncMetric(name, value) VALUES (?, ?)
+ON CONFLICT(name) DO UPDATE SET value = value + excluded.value;
+
+allMetrics:
+SELECT name, value FROM syncMetric;
+
+resetMetrics:
+DELETE FROM syncMetric;

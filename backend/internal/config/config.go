@@ -80,6 +80,10 @@ type Config struct {
 	RateAuthPerMin  int `env:"RATE_AUTH_PER_MIN" envDefault:"20"`
 	RateCoachPerMin int `env:"RATE_COACH_PER_MIN" envDefault:"15"`
 	RatePostPerMin  int `env:"RATE_POST_PER_MIN" envDefault:"30"`
+	// Sync batches arrive on a timer (every 200-300s), on a queue threshold, on
+	// backgrounding and on reconnect. 20/min leaves room for a device draining a long
+	// offline queue in 100-event pages without ever throttling normal use.
+	RateSyncPerMin int `env:"RATE_SYNC_PER_MIN" envDefault:"20"`
 }
 
 func Load() (Config, error) {

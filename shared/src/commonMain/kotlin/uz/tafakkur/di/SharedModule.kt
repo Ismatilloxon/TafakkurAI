@@ -126,6 +126,9 @@ import uz.tafakkur.domain.usecase.TrackPrayerUseCase
 import uz.tafakkur.domain.usecase.UpdatePrayerSettingsUseCase
 import uz.tafakkur.domain.usecase.UpdateProfileUseCase
 import uz.tafakkur.domain.usecase.UploadPhotoUseCase
+import uz.tafakkur.domain.usecase.SetEmailUseCase
+import uz.tafakkur.domain.usecase.StartPhoneAttachUseCase
+import uz.tafakkur.domain.usecase.VerifyPhoneAttachUseCase
 import uz.tafakkur.network.ApiConfig
 import uz.tafakkur.network.InMemoryTokenProvider
 import uz.tafakkur.network.TokenProvider
@@ -337,6 +340,9 @@ val domainModule = module {
     factory { UpdatePrayerSettingsUseCase(get()) }
     factory { CompleteOnboardingUseCase(get()) }
     factory { UploadPhotoUseCase(get()) }
+    factory { SetEmailUseCase(get()) }
+    factory { StartPhoneAttachUseCase(get()) }
+    factory { VerifyPhoneAttachUseCase(get()) }
 
     factory { GetPrayerTimesUseCase(get()) }
     factory { TrackPrayerUseCase(get()) }

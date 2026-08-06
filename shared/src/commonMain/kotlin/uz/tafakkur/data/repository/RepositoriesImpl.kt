@@ -192,6 +192,28 @@ class UserRepositoryImpl(
         executor.call(CallInfo("POST", "v1/me/photo"), successKey = FeedbackKeys.PHOTO_UPDATED) {
             api.uploadPhoto(bytes, filename, contentType).url
         }
+
+    override suspend fun setEmail(email: String): UserProfile = executor.call(
+        CallInfo("PUT", "v1/me/email"),
+        successKey = FeedbackKeys.PROFILE_UPDATED,
+    ) {
+        api.setEmail(email).toDomain()
+    }
+
+    override suspend fun startPhoneAttach(phone: String): String =
+        executor.call(CallInfo("POST", "v1/me/phone/start")) {
+            api.addPhoneStart(phone).verificationId
+        }
+
+    override suspend fun verifyPhoneAttach(verificationId: String, code: String): UserProfile = executor.call(
+        CallInfo("POST", "v1/me/phone/verify"),
+        successKey = FeedbackKeys.PROFILE_UPDATED,
+        // A mistyped code is the expected failure and the card says so itself; a toast
+        // on top of that reads as an outage.
+        reportErrors = false,
+    ) {
+        api.addPhoneVerify(verificationId, code).toDomain()
+    }
 }
 
 class PrayerRepositoryImpl(

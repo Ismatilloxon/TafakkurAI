@@ -38,7 +38,10 @@ import uz.tafakkur.data.dto.PhotoUrlDto
 import uz.tafakkur.data.dto.PrayerSettingsDto
 import uz.tafakkur.data.dto.PrayerTimesResponseDto
 import uz.tafakkur.data.dto.PublishRequestDto
+import uz.tafakkur.data.dto.AddPhoneStartDto
+import uz.tafakkur.data.dto.AddPhoneVerifyDto
 import uz.tafakkur.data.dto.ReplaceInterestsDto
+import uz.tafakkur.data.dto.SetEmailDto
 import uz.tafakkur.data.dto.SessionRequestDto
 import uz.tafakkur.data.dto.SessionResponseDto
 import uz.tafakkur.data.dto.SocialPostDto
@@ -90,6 +93,18 @@ class UserApi(private val client: HttpClient) {
 
     suspend fun completeOnboarding(): UserProfileDto =
         client.post("v1/me/onboarding/complete").body()
+
+    // ── Completing the contact detail sign-in could not supply ──
+    // The address is saved as given; the number has to survive an SMS round trip
+    // first, which is why it takes two calls and the email takes one.
+    suspend fun setEmail(email: String): UserProfileDto =
+        client.post("v1/me/email") { method = io.ktor.http.HttpMethod.Put; setBody(SetEmailDto(email)) }.body()
+
+    suspend fun addPhoneStart(phone: String): OtpStartResponseDto =
+        client.post("v1/me/phone/start") { setBody(AddPhoneStartDto(phone)) }.body()
+
+    suspend fun addPhoneVerify(verificationId: String, code: String): UserProfileDto =
+        client.post("v1/me/phone/verify") { setBody(AddPhoneVerifyDto(verificationId, code)) }.body()
 
     suspend fun uploadPhoto(bytes: ByteArray, filename: String, contentType: String): PhotoUrlDto =
         client.post("v1/me/photo") {

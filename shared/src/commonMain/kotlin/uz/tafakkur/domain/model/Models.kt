@@ -19,6 +19,13 @@ data class UserProfile(
     val calcMethod: String,
     val interests: List<String>,
     val onboardingComplete: Boolean,
+    /**
+     * What sign-in could not tell us, so the profile knows which field to ask for:
+     * Google and Apple hand over an email and never a number, phone OTP and Telegram
+     * the other way round.
+     */
+    val needsPhone: Boolean = false,
+    val needsEmail: Boolean = false,
 )
 
 data class Gamification(val streak: Int, val level: Int, val xp: Int, val xpNext: Int)

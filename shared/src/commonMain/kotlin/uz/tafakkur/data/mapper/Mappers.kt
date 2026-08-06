@@ -46,6 +46,8 @@ fun UserProfileDto.toDomain() = UserProfile(
     calcMethod = calcMethod,
     interests = interests,
     onboardingComplete = onboardingComplete,
+    needsPhone = needsPhone,
+    needsEmail = needsEmail,
 )
 
 fun GamificationDto.toDomain() = Gamification(streak, level, xp, xpNext)

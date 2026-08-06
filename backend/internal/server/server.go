@@ -18,6 +18,7 @@ import (
 	"github.com/tafakkur/backend/internal/platform"
 	"github.com/tafakkur/backend/internal/prayer"
 	"github.com/tafakkur/backend/internal/quran"
+	syncsvc "github.com/tafakkur/backend/internal/sync"
 	"github.com/tafakkur/backend/internal/tracker"
 	"github.com/tafakkur/backend/internal/user"
 )
@@ -37,6 +38,10 @@ type Deps struct {
 	Gratitude *gratitude.Handler
 	Tracker   *tracker.Handler
 	Quran     *quran.Handler
+
+	// Sync is the generic event-sync platform. Every feature synchronises through
+	// it, so this is the one handler that never gains a sibling when a feature ships.
+	Sync *syncsvc.Handler
 
 	// TelegramWebhook is nil when the bot is disabled or long-polling instead.
 	// It authenticates itself via Telegram's secret-token header, so it is
@@ -86,6 +91,9 @@ func NewRouter(d Deps) http.Handler {
 			d.Tracker.Register(pr)
 			d.Gratitude.Register(pr)
 			d.Quran.Register(pr)
+			if d.Sync != nil {
+				d.Sync.Register(pr)
+			}
 		})
 	})
 
