@@ -1,7 +1,15 @@
 package uz.tafakkur.di
 
 import com.example.tafakkurai.adhkar.AdhkarStore
+import com.example.tafakkurai.ai.data.OnDeviceActionRouter
+import com.example.tafakkurai.ai.data.VocabularySourceStore
+import com.example.tafakkurai.ai.domain.LocalActionParser
+import com.example.tafakkurai.profile.data.OfflineFirstProfilePhotoRepository
+import com.example.tafakkurai.profile.data.SqlProfilePhotoLocalStore
+import com.example.tafakkurai.profile.domain.ProfilePhotoRepository
+import app.cash.sqldelight.db.SqlDriver
 import com.example.tafakkurai.db.DatabaseDriverFactory
+import com.example.tafakkurai.getPlatform
 import com.example.tafakkurai.db.createTafakkurDb
 import com.example.tafakkurai.dhikr.DhikrStore
 import com.example.tafakkurai.gratitude.GratEntryRefPayload
@@ -10,8 +18,19 @@ import com.example.tafakkurai.gratitude.GratChallengeSyncPayload
 import com.example.tafakkurai.gratitude.GratSettings
 import com.example.tafakkurai.gratitude.GratSettingsSyncPayload
 import com.example.tafakkurai.gratitude.GratitudeStore
+import com.example.tafakkurai.habits.HabitStore
 import com.example.tafakkurai.i18n.LanguageStore
+import com.example.tafakkurai.i18n.Strings
+import com.example.tafakkurai.integration.ActivityIntegrationCoordinator
+import com.example.tafakkurai.journal.data.JournalStore
+import com.example.tafakkurai.journal.domain.JournalRepository
+import com.example.tafakkurai.journal.presentation.JournalViewModel
+import com.example.tafakkurai.learning.data.QuranQuizStore
+import com.example.tafakkurai.learning.domain.QuranQuizRepository
+import com.example.tafakkurai.learning.presentation.QuranQuizViewModel
 import com.example.tafakkurai.flashcards.FlashcardStore
+import com.example.tafakkurai.finance.data.FinanceStore
+import com.example.tafakkurai.finance.domain.FinanceRepository
 import com.example.tafakkurai.quran.hifz.HifzGradeSyncPayload
 import com.example.tafakkurai.quran.hifz.HifzPlanner
 import com.example.tafakkurai.quran.hifz.HifzStore
@@ -27,20 +46,50 @@ import com.example.tafakkurai.quran.MushafPageRepository
 import com.example.tafakkurai.quran.QuranComMushafPageRepository
 import com.example.tafakkurai.quran.RemoteQuranRepository
 import com.example.tafakkurai.spiritual.AdhkarPersistence
+import com.example.tafakkurai.spiritual.AdhkarWriteTransaction
 import com.example.tafakkurai.spiritual.DhikrPersistence
+import com.example.tafakkurai.spiritual.DhikrWriteTransaction
 import com.example.tafakkurai.spiritual.PrefPersistence
 import com.example.tafakkurai.spiritual.QuranPersistence
+import com.example.tafakkurai.spiritual.QuranWriteTransaction
 import com.example.tafakkurai.spiritual.SqlAdhkarPersistence
+import com.example.tafakkurai.spiritual.SqlAdhkarWriteTransaction
 import com.example.tafakkurai.spiritual.SqlDhikrPersistence
+import com.example.tafakkurai.spiritual.SqlDhikrWriteTransaction
 import com.example.tafakkurai.spiritual.SqlPrefPersistence
 import com.example.tafakkurai.spiritual.SqlQuranPersistence
+import com.example.tafakkurai.spiritual.SqlQuranWriteTransaction
 import com.example.tafakkurai.prayer.PrayerMark
 import com.example.tafakkurai.prayer.PrayerMarkStore
-import com.example.tafakkurai.prayer.PrayerMarkSyncPayload
-import com.example.tafakkurai.sync.Outbox
+import com.example.tafakkurai.sleep.SleepActivityLog
+import com.example.tafakkurai.social.data.SocialStore
+import com.example.tafakkurai.social.domain.SocialRepository
+import com.example.tafakkurai.sync.ActivityLog
+import com.example.tafakkurai.tasks.data.TaskStore
+import com.example.tafakkurai.sleep.SleepStore
+import com.example.tafakkurai.sleep.health.HealthSleepBridge
+import com.example.tafakkurai.sleep.health.NoOpHealthSleepBridge
+import com.example.tafakkurai.settings.data.LocalSettingsRepository
+import com.example.tafakkurai.settings.data.LocalAccountMemoryResetter
+import com.example.tafakkurai.settings.data.PrivateAccountGateway
+import com.example.tafakkurai.settings.data.SchedulerSettingsSyncGateway
+import com.example.tafakkurai.settings.domain.GetSettingsUseCase
+import com.example.tafakkurai.settings.domain.IsCloudConversationEnabledUseCase
+import com.example.tafakkurai.settings.domain.ObserveSettingsSyncUseCase
+import com.example.tafakkurai.settings.domain.SetCloudConversationUseCase
+import com.example.tafakkurai.settings.domain.SettingsAccountGateway
+import com.example.tafakkurai.settings.domain.SettingsRepository
+import com.example.tafakkurai.settings.domain.SettingsSyncGateway
+import com.example.tafakkurai.settings.domain.SignOutSettingsUseCase
+import com.example.tafakkurai.settings.domain.SyncSettingsNowUseCase
+import com.example.tafakkurai.settings.presentation.SettingsViewModel
+import com.example.tafakkurai.sync.Connectivity
+import com.example.tafakkurai.sync.OptimisticConnectivity
+import com.example.tafakkurai.sync.SyncApi
 import com.example.tafakkurai.sync.SyncEngine
-import com.example.tafakkurai.sync.SyncHandler
-import com.example.tafakkurai.sync.syncJson
+import com.example.tafakkurai.sync.SyncOutbox
+import com.example.tafakkurai.sync.SyncScheduler
+import com.example.tafakkurai.sync.syncMetadata
 import kotlinx.serialization.decodeFromString
 import com.example.tafakkurai.prayer.LocationPrayerScheduleRepository
 import com.example.tafakkurai.prayer.PrayerScheduleRepository
@@ -194,16 +243,82 @@ val prayerModule = module {
 
 /** Local persistence (SQLDelight). Platform layer must register a DatabaseDriverFactory. */
 val localModule = module {
-    single { createTafakkurDb(get<DatabaseDriverFactory>()) }
-    single { FlashcardStore(get()) }
-    // Outbox is the shared write-through queue every local store appends its changes to.
-    single { Outbox(get()) }
-    // Shared single instance = the ring, card and tracker all read/write one source; the
-    // Outbox arg makes every mark change queue for backend sync on the next app enter.
-    single { PrayerMarkStore(get(), get()) }
+    // The driver is a binding of its own because the sync platform works against the raw
+    // schema — discovering tables, installing triggers, assembling payloads — which the
+    // generated TafakkurDb API cannot express. Everything else keeps using TafakkurDb.
+    single<SqlDriver> { get<DatabaseDriverFactory>().createDriver() }
+    single { createTafakkurDb(get<SqlDriver>()) }
+    single { SqlProfilePhotoLocalStore(get()) }
+    single<ProfilePhotoRepository> {
+        OfflineFirstProfilePhotoRepository(
+            local = get(),
+            remote = get(),
+            connectivity = get(),
+            appScope = get(),
+        )
+    }
+    single { FlashcardStore(get(), activity = get()) }
+    single {
+        FinanceStore(
+            db = get(),
+            activity = get(),
+            remoteChanges = get<SyncEngine>().remoteChanges,
+            scope = get(),
+        )
+    }
+    single<FinanceRepository> { get<FinanceStore>() }
+    single { SocialStore(get(), activity = get()) }
+    single<SocialRepository> { get<SocialStore>() }
+    single { TaskStore(get(), activity = get()) }
+    single { VocabularySourceStore(get(), activity = get()) }
+    single { LocalActionParser() }
+    single {
+        OnDeviceActionRouter(
+            parser = get(),
+            tasks = get(),
+            habits = get(),
+            gratitude = get(),
+            hifz = get(),
+            flashcards = get(),
+            sources = get(),
+        )
+    }
+    // Shared single instance = the ring, card and tracker all read/write one source.
+    // No sync argument: marking a prayer is a local write, and the database itself
+    // notices it (see SyncSchema).
+    single { PrayerMarkStore(get(), activity = get()) }
     // Same single-instance rule: the Gratitude home card, history, jar and the Today
     // dashboard must read one store or they would disagree about today's entries.
-    single { GratitudeStore(get(), get(), get()) }
+    single { GratitudeStore(get(), get(), activity = get()) }
+    // Habits. A single for the same reason: the Today block, the habits home, the detail
+    // screen and the statistics all derive their streaks from one entry table, and a
+    // second instance would let two of them disagree about whether today is done.
+    single { HabitStore(get(), activity = get()) }
+}
+
+/**
+ * Tafakkur Journal owns its data and presentation wiring as one feature module.
+ *
+ * Both public routes receive the same app-hoisted ViewModel. Its repository is a single
+ * SQL source of truth; only the state holder is a factory so tests and future scoped hosts
+ * can request an isolated composer without constructing SQL or localization dependencies.
+ */
+val journalModule = module {
+    single<JournalRepository> {
+        JournalStore(
+            db = get(),
+            activity = get(),
+            remoteChanges = get<SyncEngine>().remoteChanges,
+            scope = get(),
+        )
+    }
+    factory {
+        val languages = get<LanguageStore>()
+        JournalViewModel(
+            repository = get(),
+            localizedLabel = { key -> Strings.of(languages.current)[key] },
+        )
+    }
 }
 
 /**
@@ -227,22 +342,40 @@ fun quranModule(
     fileStore: AudioFileStore = NoOpAudioFileStore(),
 ) = module {
     single<QuranPersistence> { SqlQuranPersistence(get()) }
+    single<QuranWriteTransaction> { SqlQuranWriteTransaction(get()) }
     single<PrefPersistence> { SqlPrefPersistence(get()) }
     single<DhikrPersistence> { SqlDhikrPersistence(get()) }
+    single<DhikrWriteTransaction> { SqlDhikrWriteTransaction(get()) }
     single<AdhkarPersistence> { SqlAdhkarPersistence(get()) }
+    single<AdhkarWriteTransaction> { SqlAdhkarWriteTransaction(get()) }
 
-    single { QuranProgressStore(get(), get()) }
     // Interface language. A single so the first-run picker, the profile switcher and every
     // screen read one instance — switching language must change all of them at once.
     single { LanguageStore(get()) }
-    single { DhikrStore(get(), get()) }
-    single { AdhkarStore(get()) }
+    single {
+        val languages = get<LanguageStore>()
+        QuranProgressStore(
+            get(), get(), activity = get(), writes = get(),
+            currentLanguageCode = { languages.current.code },
+        )
+    }
+    single { DhikrStore(get(), get(), activity = get(), writes = get()) }
+    single { AdhkarStore(get(), activity = get(), writes = get()) }
 
     // Memorization. Singles for the same reason the stores above are: the hifz home, the
     // setup screen and a running session must read one card table, or the home would show
     // counts a session had already changed.
-    single { HifzStore(get(), get()) }
+    single { HifzStore(get(), activity = get()) }
     single { HifzPlanner(get(), get()) }
+    single<QuranQuizRepository> {
+        QuranQuizStore(
+            db = get(),
+            activity = get(),
+            remoteChanges = get<SyncEngine>().remoteChanges,
+            scope = get(),
+        )
+    }
+    factory { QuranQuizViewModel(get()) }
 
     // Reading the qari through a lambda means changing it takes effect on the next fetch
     // without rebuilding the repository graph.
@@ -270,58 +403,96 @@ fun quranModule(
 }
 
 /**
- * Offline-first sync. [SyncEngine] drains the Outbox on app enter, dispatching each queued
- * op to the handler for its entity. Add a new entity by registering its handler here and
- * calling [Outbox.enqueue] from that entity's store — nothing else changes.
+ * The generic sync platform.
+ *
+ * Compare this with what it replaced: a `Map<String, SyncHandler>` holding a hand-written
+ * lambda per entity, plus a `when` over operation names inside several of them. Every new
+ * feature meant a new handler, a new payload class and an edit to this file.
+ *
+ * There is now nothing here to edit. [SyncEngine] discovers the tables in the local
+ * database at startup, installs triggers on them, and synchronises whatever it finds. A
+ * feature added in six months registers itself by existing.
  */
-val syncModule = module {
-    single<Map<String, SyncHandler>> {
-        val track = get<TrackPrayerUseCase>()
-        val saveGratitude = get<SaveGratitudeEntryUseCase>()
-        val favGratitude = get<SetGratitudeFavouriteUseCase>()
-        val deleteGratitude = get<DeleteGratitudeEntryUseCase>()
-        val joinChallenge = get<JoinGratitudeChallengeUseCase>()
-        val completeDay = get<CompleteGratitudeChallengeDayUseCase>()
-        val saveGratitudeSettings = get<SaveGratitudeSettingsUseCase>()
-        val gradeHifz = get<GradeHifzUseCase>()
-        mapOf(
-            // A gratitude entry carries its client id, so create/update/replay all land
-            // on the same backend row — the queue can retry as often as it needs to.
-            "gratitudeEntry" to SyncHandler { op, payload ->
-                when (op) {
-                    "favourite" -> {
-                        val p = syncJson.decodeFromString<GratEntryRefPayload>(payload)
-                        favGratitude(p.id, p.favourite)
-                    }
-                    "delete" -> deleteGratitude(syncJson.decodeFromString<GratEntryRefPayload>(payload).id)
-                    else -> saveGratitude(syncJson.decodeFromString<GratEntrySyncPayload>(payload).entry)
-                }
-            },
-            "gratitudeChallenge" to SyncHandler { op, payload ->
-                val p = syncJson.decodeFromString<GratChallengeSyncPayload>(payload)
-                if (op == "complete") completeDay(p.challengeId, p.day) else joinChallenge(p.challengeId, p.joined)
-            },
-            "gratitudeSettings" to SyncHandler { _, payload ->
-                val p = syncJson.decodeFromString<GratSettingsSyncPayload>(payload)
-                saveGratitudeSettings(
-                    GratSettings(p.reminderSlot, p.reminderTime, p.faceId, p.appLock, p.hidePreview, p.cloudSync),
-                )
-            },
-            // One op per graded ayah. A whole session done offline drains in order on the
-            // next app enter; the op id is the idempotency key, so a retry cannot double-apply.
-            HifzStore.ENTITY to SyncHandler { _, payload ->
-                val p = syncJson.decodeFromString<HifzGradeSyncPayload>(payload)
-                gradeHifz(p.surah, p.ayah, p.rating, p.at, p.state, p.stability, p.difficulty, p.due)
-            },
-            "prayerMark" to SyncHandler { _, payload ->
-                val p = syncJson.decodeFromString<PrayerMarkSyncPayload>(payload)
-                // ontime/jamaat = a completion the backend records; "upcoming" (un-mark) has
-                // no backend verb yet, so it stays local-only until the API gains a delete.
-                if (p.state != PrayerMark.NONE.id) track(p.prayer, p.date)
-            },
+fun syncModule(connectivity: Connectivity = OptimisticConnectivity()) = module {
+    single {
+        ActivityLog(
+            db = get(),
+            remoteChanges = get<SyncEngine>().remoteChanges,
+            scope = get(),
         )
     }
-    single { SyncEngine(get(), get()) }
+    single { SleepActivityLog(get()) }
+    single { ActivityIntegrationCoordinator(get(), get(), get(), get()) }
+    single { SyncOutbox(get()) }
+    single { SyncApi(get()) }
+
+    // Reachability is optional: the default assumes a network and lets failure plus
+    // backoff do the work. Android passes ConnectivityManager-backed reachability so
+    // an offline queue is flushed as soon as a validated network returns.
+    single<Connectivity> { connectivity }
+
+    single {
+        SyncEngine(
+            driver = get(),
+            db = get(),
+            outbox = get(),
+            api = get(),
+            metadata = syncMetadata(appVersion = "shared", platform = getPlatform().name),
+        )
+    }
+
+    // One scope for the scheduler's timers, cancelled with the app rather than with any
+    // screen: a sync that starts as the user backgrounds the app must not be cancelled by
+    // the composable that happened to trigger it going away.
+    single { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+
+    single { SyncScheduler(engine = get(), scope = get(), connectivity = get()) }
+}
+
+/** App-wide privacy, sync and account settings behind domain ports. */
+val settingsModule = module {
+    single<SettingsRepository> { LocalSettingsRepository(get()) }
+    single<SettingsSyncGateway> { SchedulerSettingsSyncGateway(get(), get(), get()) }
+    single {
+        LocalAccountMemoryResetter(
+            get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(),
+        )
+    }
+    single<SettingsAccountGateway> { PrivateAccountGateway(get(), get(), get(), get(), get(), get()) }
+
+    factory { GetSettingsUseCase(get()) }
+    factory { SetCloudConversationUseCase(get()) }
+    factory { IsCloudConversationEnabledUseCase(get()) }
+    factory { ObserveSettingsSyncUseCase(get()) }
+    factory { SyncSettingsNowUseCase(get()) }
+    factory { SignOutSettingsUseCase(get()) }
+    factory { SettingsViewModel(get(), get(), get(), get(), get()) }
+}
+
+/**
+ * Sleep & Rest.
+ *
+ * Nothing here registers anything with the sync platform, and that is the point: `sleepSession`
+ * and `sleepRoutineMark` are ordinary tables, so [SyncEngine] discovers them at the next
+ * `attach()`, installs triggers and backfills them without a line of configuration.
+ *
+ * @param healthBridge the platform health store. Defaults to [NoOpHealthSleepBridge], which
+ *  leaves the module fully usable — manual logging, routines, smart bedtime and the coach all
+ *  work without a health store; only the automatic import is absent. iOS passes
+ *  `HealthKitSleepBridge()`. Android deliberately keeps the no-op until its Health Connect
+ *  dependency, read permissions, and Activity result contract can be added together.
+ */
+fun sleepModule(healthBridge: HealthSleepBridge = NoOpHealthSleepBridge()) = module {
+    // A single for the same reason PrayerMarkStore and GratitudeStore are: the dashboard, the
+    // statistics screen, the routine checklist and the Today card must read one instance, or
+    // they would disagree about last night.
+    single { SleepStore(get(), get(), get()) }
+
+    // ActivityLog and SleepActivityLog are app-wide singles owned by syncModule. Keeping
+    // their bindings there gives every feature one immutable event stream and avoids Koin
+    // replacing those definitions when the sleep module is loaded.
+
+    single<HealthSleepBridge> { healthBridge }
 }
 
 val domainModule = module {
@@ -391,6 +562,8 @@ fun initKoin(
     tokenProvider: TokenProvider = InMemoryTokenProvider(),
     audioPlayer: AyahAudioPlayer = NoOpAyahAudioPlayer(),
     audioFileStore: AudioFileStore = NoOpAudioFileStore(),
+    connectivity: Connectivity = OptimisticConnectivity(),
+    healthBridge: HealthSleepBridge = NoOpHealthSleepBridge(),
     appDeclaration: KoinAppDeclaration = {},
 ): KoinApplication = startKoin {
     appDeclaration()
@@ -400,8 +573,11 @@ fun initKoin(
         dataModule,
         domainModule,
         localModule,
-        syncModule,
+        syncModule(connectivity),
+        journalModule,
         prayerModule,
         quranModule(audioPlayer, audioFileStore),
+        sleepModule(healthBridge),
+        settingsModule,
     )
 }

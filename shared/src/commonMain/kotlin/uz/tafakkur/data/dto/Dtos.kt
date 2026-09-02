@@ -247,6 +247,9 @@ data class LessonDto(
     val title: String,
     val body: String,
     @SerialName("order_index") val orderIndex: Int,
+    // Additive default keeps the app compatible with a backend from before
+    // per-user lesson completion became a durable source of truth.
+    val completed: Boolean = false,
 )
 
 @Serializable
@@ -254,6 +257,31 @@ data class SubjectsResponseDto(val subjects: List<SubjectDto> = emptyList())
 
 @Serializable
 data class LessonsResponseDto(val lessons: List<LessonDto> = emptyList())
+
+@Serializable
+data class CompleteLessonRequestDto(
+    @SerialName("event_id") val eventId: String,
+    @SerialName("local_date") val localDate: String,
+    val timezone: String,
+)
+
+@Serializable
+data class LessonCompletionDto(
+    @SerialName("event_id") val eventId: String,
+    @SerialName("lesson_id") val lessonId: String,
+    @SerialName("local_date") val localDate: String,
+    val timezone: String,
+    @SerialName("completed_at") val completedAt: String,
+)
+
+@Serializable
+data class LessonCompletionResponseDto(
+    val ok: Boolean = true,
+    // An older backend returns only ok + gamification. Keeping this nullable lets
+    // a rolling mobile/backend deployment remain usable while the server upgrades.
+    val completion: LessonCompletionDto? = null,
+    val gamification: GamificationDto,
+)
 
 // ---------------- Tracker ----------------
 

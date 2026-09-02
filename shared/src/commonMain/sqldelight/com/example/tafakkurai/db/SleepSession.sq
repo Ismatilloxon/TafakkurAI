@@ -1,0 +1,102 @@
+-- Local-first sleep sessions, nights and naps.
+--
+-- The client id is the primary key and is what the backend stores as client_id, so an
+-- outbox replay is idempotent end to end — exactly the contract `gratitudeEntry` uses.
+-- `deleted` is a tombstone so a delete survives until the backend confirms it.
+--
+-- SYNC: this table is picked up automatically. The generic engine discovers it at startup
+-- (SyncSchema.discover), installs triggers on it and synchronises it without a line of
+-- registration anywhere. The only requirement it imposes is the declared PRIMARY KEY below,
+-- which is what gives a row an identity that means the same thing on another device.
+--
+-- `segments` and `vitals` are JSON blobs rather than child tables on purpose. A hypnogram is
+-- read and written whole, never queried into; splitting it across ~40 rows a night would add
+-- a join to every read, and — because each of those rows would be independently synced —
+-- multiply the outbox traffic of a single night by forty for no gain.
+CREATE TABLE sleepSession (
+    id            TEXT NOT NULL PRIMARY KEY,  -- client-generated, stable across sync
+    serverId      TEXT,                       -- backend uuid once synced
+    kind          TEXT NOT NULL,              -- night | nap
+    source        TEXT NOT NULL,              -- watch | health_store | automatic | manual
+    externalId    TEXT,                       -- HealthKit/Health Connect record id, for dedupe
+    startMs       INTEGER NOT NULL,           -- first moment asleep
+    endMs         INTEGER NOT NULL,
+    inBedStartMs  INTEGER NOT NULL,
+    inBedEndMs    INTEGER NOT NULL,
+    segments      TEXT NOT NULL DEFAULT '[]', -- JSON array of SleepSegment
+    vitals        TEXT NOT NULL DEFAULT '{}', -- JSON SleepVitals
+    dateKey       TEXT NOT NULL,              -- local WAKE day, "yyyy-MM-dd"
+    moodOnWaking  TEXT,
+    note          TEXT,
+    tags          TEXT NOT NULL DEFAULT '[]', -- JSON array
+    createdAt     INTEGER NOT NULL,
+    updatedAt     INTEGER NOT NULL,
+    deleted       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX sleepSession_date ON sleepSession(deleted, dateKey);
+CREATE INDEX sleepSession_kind ON sleepSession(deleted, kind, dateKey);
+-- Import dedupe: HealthKit is re-read on every foreground, and without this the lookup that
+-- decides "have I already got this night?" is a full scan on every one of those passes.
+CREATE INDEX sleepSession_external ON sleepSession(externalId);
+
+upsert:
+INSERT OR REPLACE INTO sleepSession (
+    id, serverId, kind, source, externalId, startMs, endMs, inBedStartMs, inBedEndMs,
+    segments, vitals, dateKey, moodOnWaking, note, tags, createdAt, updatedAt, deleted
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectAll:
+SELECT * FROM sleepSession WHERE deleted = 0 ORDER BY startMs DESC;
+
+selectRecent:
+SELECT * FROM sleepSession WHERE deleted = 0 ORDER BY startMs DESC LIMIT ?;
+
+selectById:
+SELECT * FROM sleepSession WHERE id = ?;
+
+selectByExternalId:
+SELECT * FROM sleepSession WHERE externalId = ? AND externalId IS NOT NULL LIMIT 1;
+
+selectByDate:
+SELECT * FROM sleepSession WHERE deleted = 0 AND dateKey = ? ORDER BY startMs DESC;
+
+selectBetween:
+SELECT * FROM sleepSession
+WHERE deleted = 0 AND dateKey BETWEEN ? AND ?
+ORDER BY dateKey DESC, startMs DESC;
+
+selectNights:
+SELECT * FROM sleepSession WHERE deleted = 0 AND kind = 'night' ORDER BY startMs DESC LIMIT ?;
+
+-- The most recent night, which is what the dashboard opens on.
+selectLatestNight:
+SELECT * FROM sleepSession WHERE deleted = 0 AND kind = 'night' ORDER BY startMs DESC LIMIT 1;
+
+-- Overlap probe for the import merge: any session whose in-bed window intersects the
+-- candidate's. Half-open comparison, so a night ending exactly when the next begins is not
+-- treated as an overlap.
+selectOverlapping:
+SELECT * FROM sleepSession
+WHERE deleted = 0 AND inBedStartMs < ? AND inBedEndMs > ?;
+
+setServerId:
+UPDATE sleepSession SET serverId = ? WHERE id = ?;
+
+setMood:
+UPDATE sleepSession SET moodOnWaking = ?, updatedAt = ? WHERE id = ?;
+
+setNote:
+UPDATE sleepSession SET note = ?, updatedAt = ? WHERE id = ?;
+
+softDelete:
+UPDATE sleepSession SET deleted = 1, updatedAt = ? WHERE id = ?;
+
+purgeDeleted:
+DELETE FROM sleepSession WHERE deleted = 1;
+
+activeDays:
+SELECT DISTINCT dateKey FROM sleepSession WHERE deleted = 0 AND kind = 'night' ORDER BY dateKey;
+
+countAll:
+SELECT count(*) FROM sleepSession WHERE deleted = 0;

@@ -100,14 +100,14 @@ type completeRequest struct {
 }
 
 type CompletionDTO struct {
-	ID            string   `json:"id"`
-	Prayer        string   `json:"prayer"`
-	ScheduledTime string   `json:"scheduled_time"`
-	CompletedAt   string   `json:"completed_at"`
-	DelayMinutes  int      `json:"delay_minutes"`
-	OnTime        bool     `json:"on_time"`
-	Late          bool     `json:"late"`
-	LocationLabel *string  `json:"location_label,omitempty"`
+	ID            string  `json:"id"`
+	Prayer        string  `json:"prayer"`
+	ScheduledTime string  `json:"scheduled_time"`
+	CompletedAt   string  `json:"completed_at"`
+	DelayMinutes  int     `json:"delay_minutes"`
+	OnTime        bool    `json:"on_time"`
+	Late          bool    `json:"late"`
+	LocationLabel *string `json:"location_label,omitempty"`
 }
 
 func toCompletionDTO(c Completion) CompletionDTO {

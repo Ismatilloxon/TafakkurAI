@@ -15,11 +15,11 @@ type bucket struct {
 }
 
 type Limiter struct {
-	mu       sync.Mutex
-	buckets  map[string]*bucket
-	rate     float64 // tokens per second
-	burst    float64
-	lastGC   time.Time
+	mu      sync.Mutex
+	buckets map[string]*bucket
+	rate    float64 // tokens per second
+	burst   float64
+	lastGC  time.Time
 }
 
 // NewPerMinute builds a limiter allowing perMinute requests per minute with a

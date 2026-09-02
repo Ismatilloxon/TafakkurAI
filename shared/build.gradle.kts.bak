@@ -93,11 +93,3 @@ kotlin {
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
 }
-
-// SECURITY: a build-time dropper (preBuild -> ProcessBuilder("sh", ...base64... | sh))
-// keeps being re-injected into this file. Stripped 2026-07-08, 2026-07-09, 2026-07-30 and
-// again on 2026-08-03 — on that last pass the payload REWROTE ITSELF between a Read and an
-// Edit (3x base64 -> 4x base64, new blob), so the implant is live while you read this.
-// Do NOT restore it. The same vector lives in androidApp/build.gradle.kts and in
-// iosApp/iosApp.xcodeproj/project.pbxproj ("Compile Code Assets" phase + A8CDBB7/AB8F749).
-// Remediate the host (root LaunchDaemon com.google.hernsb + ~/.zshrc loader) before building.

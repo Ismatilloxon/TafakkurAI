@@ -123,10 +123,19 @@ func (s *Service) Times(ctx context.Context, userID uuid.UUID, date time.Time, l
 // Track records that the user prayed a given prayer and awards XP.
 func (s *Service) Track(ctx context.Context, userID uuid.UUID, prayer string, date time.Time) (gamify.State, error) {
 	payload, _ := json.Marshal(map[string]string{"prayer": prayer})
-	if _, err := s.tracker.Create(ctx, userID, "prayer", payload, date); err != nil {
+	entry, err := s.tracker.Create(ctx, userID, "prayer", payload, date)
+	if err != nil {
 		return gamify.State{}, err
 	}
-	return s.gamify.Award(ctx, userID, gamify.EventPrayerTracked)
+	award, err := s.gamify.AwardOnce(ctx, userID, gamify.AwardCommand{
+		Event:          gamify.EventPrayerTracked,
+		IdempotencyKey: prayerAwardKey(prayer, entry.EntryDate),
+		LocalDate:      entry.EntryDate,
+	})
+	if err != nil {
+		return gamify.State{}, err
+	}
+	return award.State, nil
 }
 
 // CompleteInput carries a full completion record from the client, which
@@ -178,18 +187,33 @@ func (s *Service) Complete(ctx context.Context, userID uuid.UUID, in CompleteInp
 		return CompleteResult{}, err
 	}
 
-	state, err := s.gamify.Award(ctx, userID, gamify.EventPrayerTracked)
+	baseAward, err := s.gamify.AwardOnce(ctx, userID, gamify.AwardCommand{
+		Event:          gamify.EventPrayerTracked,
+		IdempotencyKey: prayerAwardKey(in.Prayer, in.ScheduledTime),
+		LocalDate:      in.ScheduledTime,
+	})
 	if err != nil {
 		return CompleteResult{}, err
 	}
+	state := baseAward.State
 	if onTime {
-		state, err = s.gamify.Award(ctx, userID, gamify.EventPrayerOnTime)
+		bonusAward, awardErr := s.gamify.AwardOnce(ctx, userID, gamify.AwardCommand{
+			Event:          gamify.EventPrayerOnTime,
+			IdempotencyKey: prayerAwardKey(in.Prayer, in.ScheduledTime),
+			LocalDate:      in.ScheduledTime,
+		})
+		err = awardErr
 		if err != nil {
 			return CompleteResult{}, err
 		}
+		state = bonusAward.State
 	}
 
 	return CompleteResult{Completion: c, Gamification: state}, nil
+}
+
+func prayerAwardKey(prayer string, scheduled time.Time) string {
+	return "prayer:" + prayer + ":" + scheduled.Format(time.DateOnly)
 }
 
 // History returns completions in [from, to] for the Prayer History screen.

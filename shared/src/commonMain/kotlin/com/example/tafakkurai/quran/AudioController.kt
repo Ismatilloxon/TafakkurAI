@@ -90,8 +90,7 @@ class AudioController(
     private var rangeStart: Int = 1
     private var rangeEnd: Int = 1
 
-    init {
-        player.listener = object : AyahAudioPlayerListener {
+    private val listener = object : AyahAudioPlayerListener {
             override fun onReady(durationMs: Long) {
                 _state.update { it.copy(durationMs = durationMs, playback = PlaybackState.PLAYING, error = null) }
                 player.play()
@@ -103,6 +102,16 @@ class AudioController(
                 stopTicker()
                 // A repeat still owing laps takes the completion for itself.
                 if (repeatOnComplete()) return
+                // AYAH repeat is a bounded drill. Once its requested plays are complete,
+                // remain on that ayah so the memorisation screen grades what was just heard
+                // instead of silently advancing into a different card.
+                if (repeatMode == RepeatMode.AYAH) {
+                    _state.update {
+                        it.copy(playback = PlaybackState.PAUSED, positionMs = it.durationMs)
+                    }
+                    publishNowPlaying()
+                    return
+                }
                 // Continuous recitation: roll into the next ayah, and stop cleanly at the
                 // end of the surah rather than looping back to the start.
                 if (!advance(1)) {
@@ -114,7 +123,9 @@ class AudioController(
 
             override fun onError(message: String) {
                 stopTicker()
-                _state.update { it.copy(playback = PlaybackState.ERROR, error = message) }
+                _state.update {
+                    it.copy(playback = PlaybackState.ERROR, error = "quran.reader.audio_unavailable")
+                }
                 publishNowPlaying()
             }
 
@@ -143,11 +154,23 @@ class AudioController(
             override fun onExternalPrevious() {
                 previous()
             }
-        }
+    }
+
+    init { activate() }
+
+    /** Reclaims callbacks from the app-wide player when this controller's screen is active. */
+    fun activate() {
+        if (player.listener !== listener) player.listener = listener
+    }
+
+    /** Releases callback ownership without releasing the app-wide player itself. */
+    fun deactivate() {
+        if (player.listener === listener) player.listener = null
     }
 
     /** Called whenever the reader loads a surah or the user changes qari. */
     fun setQueue(ayahs: List<Ayah>, reciter: Reciter) {
+        activate()
         queue = ayahs
         this.reciter = reciter
         // A primed track holds a url for the old qari; re-point it at the new one.
@@ -180,6 +203,7 @@ class AudioController(
      * and it never overrides a track that is already loaded.
      */
     fun prime(surahNumber: Int, ayahNumber: Int) {
+        activate()
         if (_state.value.track != null) return
         val url = urlFor(surahNumber, ayahNumber) ?: return
         loadedUrl = null
@@ -208,6 +232,7 @@ class AudioController(
      * the opening being inserted a second time.
      */
     fun playAyah(surahNumber: Int, ayahNumber: Int, basmala: Boolean = showsBasmala(surahNumber)) {
+        activate()
         val current = _state.value.track
         if (current != null && current.surahNumber == surahNumber &&
             current.ayahNumber == ayahNumber && !current.isBasmala
@@ -222,7 +247,7 @@ class AudioController(
         val url = urlFor(surahNumber, ayahNumber)
         if (url == null) {
             _state.update {
-                it.copy(playback = PlaybackState.ERROR, error = "No audio for this ayah")
+                it.copy(playback = PlaybackState.ERROR, error = "quran.reader.audio_unavailable")
             }
             return
         }
@@ -282,6 +307,7 @@ class AudioController(
     }
 
     fun togglePlayPause() {
+        activate()
         when (_state.value.playback) {
             PlaybackState.PLAYING -> {
                 player.pause()
@@ -317,12 +343,19 @@ class AudioController(
         }
     }
 
-    fun next(): Boolean = advance(1)
+    fun next(): Boolean {
+        activate()
+        return advance(1)
+    }
 
-    fun previous(): Boolean = advance(-1)
+    fun previous(): Boolean {
+        activate()
+        return advance(-1)
+    }
 
     /** Seek by fraction of the track, which is what a progress bar drag gives us. */
     fun seekToFraction(fraction: Float) {
+        activate()
         val duration = _state.value.durationMs
         if (duration <= 0L) return
         val target = (duration * fraction.coerceIn(0f, 1f)).toLong()
@@ -347,7 +380,7 @@ class AudioController(
 
     fun release() {
         stopTicker()
-        player.listener = null
+        deactivate()
         player.release()
     }
 

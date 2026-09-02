@@ -4,3 +4,5 @@
 "NSLocationWhenInUseUsageDescription" = "TafakkurAI joylashuvingizdan aniq namoz vaqtlarini hisoblash uchun foydalanadi.";
 "NSLocationAlwaysAndWhenInUseUsageDescription" = "TafakkurAI joylashuvingizdan aniq namoz vaqtlarini hisoblash uchun foydalanadi.";
 "NSPhotoLibraryUsageDescription" = "Profil rasmini oʻrnatishingiz uchun TafakkurAI suratlaringizga kirish soʻraydi.";
+"NSLocalNetworkUsageDescription" = "TafakkurAI mahalliy tarmogʻingizdagi dasturlash serveriga ulanadi.";
+"NSHealthShareUsageDescription" = "TafakkurAI tiklanish va uyqu tendensiyalarini koʻrsatish uchun uyqu bosqichlari va davomiyligini oʻqiydi.";

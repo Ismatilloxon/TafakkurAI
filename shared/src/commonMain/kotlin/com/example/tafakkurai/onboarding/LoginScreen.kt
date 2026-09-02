@@ -129,11 +129,18 @@ fun LoginScreen(
             // Primary path: no phone number, no third-party SDK — the backend issues a
             // one-time code and the bot confirms it (POST /v1/auth/telegram/start → /poll).
             AuthButton(
-                bg = TELEGRAM_BUTTON_BG, border = null, label = "Telegram orqali kirish",
+                bg = TELEGRAM_BUTTON_BG, border = null, label = tr("login.telegram"),
                 labelColor = Color.White, spinnerColor = Color.White,
                 loading = false, enabled = !busy,
                 leading = { TelegramMark(Color.White, 19) },
                 onClick = { if (!busy) onTelegram() },
+            )
+            AuthButton(
+                bg = c.card, border = c.line, label = tr("login.phone"),
+                labelColor = c.fg, spinnerColor = c.fg,
+                loading = false, enabled = !busy,
+                leading = { PhoneGlyph(c.fg, 19) },
+                onClick = { if (!busy) onPhone() },
             )
             AuthButton(
                 bg = Color.White, border = null, label = tr("login.apple"),
@@ -149,9 +156,6 @@ fun LoginScreen(
                 leading = { GoogleMark(18) },
                 onClick = { google() },
             )
-            // Phone/OTP is intentionally not offered: Telegram covers the same "no third-party
-            // SDK" case without an SMS bill. The screens and endpoints still exist behind
-            // [onPhone] if it is ever brought back.
         }
 
         Spacer(Modifier.height(28.dp))

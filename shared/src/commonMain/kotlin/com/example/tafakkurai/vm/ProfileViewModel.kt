@@ -5,13 +5,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.tafakkurai.profile.domain.ProfilePhotoRepository
+import com.example.tafakkurai.profile.domain.ProfilePhotoUploadResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import uz.tafakkur.domain.model.Gamification
 import uz.tafakkur.domain.model.UserProfile
 import uz.tafakkur.domain.usecase.GetMeUseCase
 import uz.tafakkur.domain.usecase.SetEmailUseCase
 import uz.tafakkur.domain.usecase.StartPhoneAttachUseCase
-import uz.tafakkur.domain.usecase.UploadPhotoUseCase
 import uz.tafakkur.domain.usecase.VerifyPhoneAttachUseCase
 
 /** Where the "finish your profile" card is in its two-step phone flow. */
@@ -20,7 +22,7 @@ enum class ContactStep { IDLE, CODE_SENT, DONE }
 /** Backs ProfileScreen with the real GET /me (replaces the TUSER mock). */
 class ProfileViewModel(
     private val getMe: GetMeUseCase,
-    private val uploadPhotoUseCase: UploadPhotoUseCase,
+    private val profilePhoto: ProfilePhotoRepository,
     private val setEmailUseCase: SetEmailUseCase,
     private val startPhoneAttach: StartPhoneAttachUseCase,
     private val verifyPhoneAttach: VerifyPhoneAttachUseCase,
@@ -30,9 +32,13 @@ class ProfileViewModel(
         private set
     var gamification by mutableStateOf<Gamification?>(null)
         private set
-    var loading by mutableStateOf(false)
+    // Start in loading state so the first composition never flashes an empty profile
+    // before the init coroutine reaches its first line.
+    var loading by mutableStateOf(true)
         private set
-    var error by mutableStateOf<String?>(null)
+    var errorKey by mutableStateOf<String?>(null)
+        private set
+    var photoUploading by mutableStateOf(false)
         private set
 
     init {
@@ -42,26 +48,56 @@ class ProfileViewModel(
     fun load() {
         viewModelScope.launch {
             loading = true
-            error = null
+            errorKey = null
             try {
                 val me = getMe()
                 user = me.user
                 gamification = me.gamification
+                when (val photo = profilePhoto.retryPending()) {
+                    is ProfilePhotoUploadResult.Uploaded -> {
+                        user = user?.copy(photoUrl = photo.remoteUrl)
+                    }
+                    ProfilePhotoUploadResult.Deferred -> {
+                        errorKey = "profile.error.photo_upload"
+                    }
+                    ProfilePhotoUploadResult.NothingPending -> Unit
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
             } catch (e: Exception) {
-                error = e.message ?: "Failed to load profile"
+                errorKey = "profile.error.load"
             } finally {
                 loading = false
             }
         }
     }
 
-    fun uploadPhoto(bytes: ByteArray) {
+    /** Commits locally first, then best-effort reconciles the pending revision. */
+    fun selectPhoto(bytes: ByteArray) {
+        if (bytes.isEmpty() || photoUploading) return
         viewModelScope.launch {
+            photoUploading = true
+            errorKey = null
             try {
-                val url = uploadPhotoUseCase(bytes, "avatar.jpg", "image/jpeg")
-                user = user?.copy(photoUrl = url)
+                if (!profilePhoto.saveSelection(bytes)) {
+                    errorKey = "profile.error.photo_upload"
+                    return@launch
+                }
+                when (val result = profilePhoto.retryPending()) {
+                    is ProfilePhotoUploadResult.Uploaded -> {
+                        user = user?.copy(photoUrl = result.remoteUrl)
+                    }
+                    ProfilePhotoUploadResult.Deferred -> {
+                        errorKey = "profile.error.photo_upload"
+                    }
+                    ProfilePhotoUploadResult.NothingPending -> Unit
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
             } catch (e: Exception) {
-                error = e.message ?: "Photo upload failed"
+                errorKey = "profile.error.photo_upload"
+            } finally {
+                photoUploading = false
             }
         }
     }
@@ -126,9 +162,9 @@ class ProfileViewModel(
                 block()
                 onSuccess()
             } catch (e: Exception) {
-                // NetworkExecutor has already mapped and logged it; the card only needs
-                // to keep the user on the field with something to read.
-                contactError = e.message ?: "profile.contact.failed"
+                // NetworkExecutor has already mapped and logged the diagnostic. Raw server or
+                // exception text is not UI copy and can leak English or implementation details.
+                contactError = "profile.contact.failed"
             } finally {
                 contactBusy = false
             }

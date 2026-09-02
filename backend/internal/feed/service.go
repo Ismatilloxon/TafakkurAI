@@ -57,7 +57,11 @@ func (s *service) Publish(ctx context.Context, authorID uuid.UUID, text string) 
 	if err != nil {
 		return SocialPostDTO{}, err
 	}
-	_, _ = s.gamify.Award(ctx, authorID, gamify.EventThoughtPublished)
+	_, _ = s.gamify.AwardOnce(ctx, authorID, gamify.AwardCommand{
+		Event:          gamify.EventThoughtPublished,
+		IdempotencyKey: "thought:" + p.ID.String(),
+		LocalDate:      p.CreatedAt,
+	})
 
 	authors, err := s.users.PublicProfiles(ctx, []uuid.UUID{authorID})
 	if err != nil {

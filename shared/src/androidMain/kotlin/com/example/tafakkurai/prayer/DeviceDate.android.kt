@@ -14,3 +14,5 @@ actual fun deviceUtcOffsetHours(): Double {
     val tz = TimeZone.getDefault()
     return tz.getOffset(System.currentTimeMillis()) / 3_600_000.0
 }
+
+actual fun deviceTimeZoneId(): String = java.util.TimeZone.getDefault().id

@@ -22,12 +22,14 @@ import uz.tafakkur.data.dto.HifzCardsResponseDto
 import uz.tafakkur.data.dto.HifzGradeRequestDto
 import uz.tafakkur.data.dto.HifzPlanRequestDto
 import uz.tafakkur.data.dto.CreateEntryRequestDto
+import uz.tafakkur.data.dto.CompleteLessonRequestDto
 import uz.tafakkur.data.dto.EntriesResponseDto
 import uz.tafakkur.data.dto.GamificationEnvelopeDto
 import uz.tafakkur.data.dto.GooglePollRequestDto
 import uz.tafakkur.data.dto.GooglePollResponseDto
 import uz.tafakkur.data.dto.GoogleStartResponseDto
 import uz.tafakkur.data.dto.LessonDto
+import uz.tafakkur.data.dto.LessonCompletionResponseDto
 import uz.tafakkur.data.dto.LessonsResponseDto
 import uz.tafakkur.data.dto.LikeResponseDto
 import uz.tafakkur.data.dto.MeResponseDto
@@ -83,13 +85,13 @@ class UserApi(private val client: HttpClient) {
     suspend fun me(): MeResponseDto = client.get("v1/me").body()
 
     suspend fun updateProfile(dto: UpdateProfileDto): UserProfileDto =
-        client.post("v1/me/profile") { method = io.ktor.http.HttpMethod.Put; setBody(dto) }.body()
+        client.put("v1/me/profile") { setBody(dto) }.body()
 
     suspend fun replaceInterests(dto: ReplaceInterestsDto): UserProfileDto =
-        client.post("v1/me/interests") { method = io.ktor.http.HttpMethod.Put; setBody(dto) }.body()
+        client.put("v1/me/interests") { setBody(dto) }.body()
 
     suspend fun updatePrayerSettings(dto: PrayerSettingsDto): UserProfileDto =
-        client.post("v1/me/prayer-settings") { method = io.ktor.http.HttpMethod.Put; setBody(dto) }.body()
+        client.put("v1/me/prayer-settings") { setBody(dto) }.body()
 
     suspend fun completeOnboarding(): UserProfileDto =
         client.post("v1/me/onboarding/complete").body()
@@ -98,7 +100,7 @@ class UserApi(private val client: HttpClient) {
     // The address is saved as given; the number has to survive an SMS round trip
     // first, which is why it takes two calls and the email takes one.
     suspend fun setEmail(email: String): UserProfileDto =
-        client.post("v1/me/email") { method = io.ktor.http.HttpMethod.Put; setBody(SetEmailDto(email)) }.body()
+        client.put("v1/me/email") { setBody(SetEmailDto(email)) }.body()
 
     suspend fun addPhoneStart(phone: String): OtpStartResponseDto =
         client.post("v1/me/phone/start") { setBody(AddPhoneStartDto(phone)) }.body()
@@ -161,8 +163,8 @@ class LearnApi(private val client: HttpClient) {
     suspend fun lessons(subjectId: String): LessonsResponseDto =
         client.get("v1/subjects/$subjectId/lessons").body()
     suspend fun lesson(id: String): LessonDto = client.get("v1/lessons/$id").body()
-    suspend fun complete(id: String): GamificationEnvelopeDto =
-        client.post("v1/lessons/$id/complete").body()
+    suspend fun complete(id: String, request: CompleteLessonRequestDto): LessonCompletionResponseDto =
+        client.post("v1/lessons/$id/complete") { setBody(request) }.body()
 }
 
 class TrackerApi(private val client: HttpClient) {

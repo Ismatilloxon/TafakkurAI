@@ -1,0 +1,35 @@
+-- Finance savings goals use immutable contributions so offline additions from two devices
+-- converge without lost updates. The small preference row remembers which unconverted ledger
+-- currency the user is viewing.
+CREATE TABLE IF NOT EXISTS financeGoal (
+    id           TEXT NOT NULL PRIMARY KEY,
+    title        TEXT NOT NULL,
+    targetMinor  INTEGER NOT NULL,
+    currencyCode TEXT NOT NULL,
+    createdAt    INTEGER NOT NULL,
+    updatedAt    INTEGER NOT NULL,
+    deleted      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS financeGoal_updated
+    ON financeGoal(deleted, updatedAt DESC);
+
+CREATE TABLE IF NOT EXISTS financeGoalContribution (
+    id               TEXT NOT NULL PRIMARY KEY,
+    goalId           TEXT NOT NULL,
+    amountMinor      INTEGER NOT NULL,
+    currencyCode     TEXT NOT NULL,
+    contributionDate TEXT NOT NULL,
+    occurredAt       INTEGER NOT NULL,
+    createdAt        INTEGER NOT NULL,
+    deleted          INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS financeGoalContribution_goal
+    ON financeGoalContribution(deleted, goalId, occurredAt DESC);
+
+CREATE TABLE IF NOT EXISTS financePreference (
+    prefKey    TEXT NOT NULL PRIMARY KEY,
+    prefValue  TEXT NOT NULL,
+    updatedAt  INTEGER NOT NULL
+);

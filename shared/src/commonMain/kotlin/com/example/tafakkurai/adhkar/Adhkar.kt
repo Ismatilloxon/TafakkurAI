@@ -3,8 +3,15 @@ package com.example.tafakkurai.adhkar
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.example.tafakkurai.flashcards.epochMillis
 import com.example.tafakkurai.prayer.deviceDateKey
 import com.example.tafakkurai.spiritual.AdhkarPersistence
+import com.example.tafakkurai.spiritual.AdhkarWriteScope
+import com.example.tafakkurai.spiritual.AdhkarWriteTransaction
+import com.example.tafakkurai.sync.ActivityLog
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 enum class AdhkarCategory(val id: String, val label: String) {
     MORNING("morning", "Morning"),
@@ -205,9 +212,13 @@ fun adhkarFor(category: AdhkarCategory): List<AdhkarItem> = when (category) {
 class AdhkarStore(
     private val storage: AdhkarPersistence,
     private val todayKey: () -> String = ::deviceDateKey,
+    private val activity: ActivityLog? = null,
+    private val writes: AdhkarWriteTransaction? = null,
+    private val now: () -> Long = ::epochMillis,
 ) {
     private var marks by mutableStateOf<Map<String, Set<String>>>(emptyMap())
     private var loadedFor = ""
+    private var lastActivityAt = 0L
 
     init { reload() }
 
@@ -240,13 +251,67 @@ class AdhkarStore(
 
     fun toggle(category: AdhkarCategory, itemId: String) {
         ensureToday()
+        if (adhkarFor(category).none { it.id == itemId }) return
+        val date = loadedFor
         val current = marks[category.id].orEmpty()
-        if (itemId in current) {
-            marks = marks + (category.id to (current - itemId))
-            storage.unmark(loadedFor, category.id, itemId)
-        } else {
-            marks = marks + (category.id to (current + itemId))
-            storage.mark(loadedFor, category.id, itemId)
+        val completed = itemId !in current
+        val properties = buildJsonObject {
+            put("date", date)
+            put("category", category.id)
+            put("item_id", itemId)
+            put("completed", completed)
         }
+        if (!commitToggle(
+                completed = completed,
+                date = date,
+                category = category,
+                itemId = itemId,
+                properties = properties,
+            )
+        ) return
+        marks = marks + (category.id to if (completed) current + itemId else current - itemId)
+    }
+
+    /**
+     * The same entity is used for completion and undo, so projection replay always lets
+     * the later compensating event clear only the item the user actually unchecked.
+     */
+    private fun commitToggle(
+        completed: Boolean,
+        date: String,
+        category: AdhkarCategory,
+        itemId: String,
+        properties: JsonObject,
+    ): Boolean {
+        val strictWrite: AdhkarWriteScope.() -> Unit = {
+            if (completed) mark(date, category.id, itemId) else unmark(date, category.id, itemId)
+        }
+        val fallbackWrite = {
+            if (completed) storage.mark(date, category.id, itemId)
+            else storage.unmark(date, category.id, itemId)
+        }
+        val transaction = writes
+        if (transaction != null) {
+            return transaction.commit {
+                strictWrite()
+                check(
+                    activity?.record(
+                        feature = "adhkar",
+                        type = "adhkar_item_toggled",
+                        properties = properties,
+                        entityId = "adhkar:$date:${category.id}:$itemId",
+                        occurredAtOverride = nextActivityTimestamp(),
+                        localDateOverride = date,
+                    ) ?: true,
+                ) { "Could not append adhkar ActivityEvent" }
+            }
+        }
+        if (activity != null) return false
+        return runCatching(fallbackWrite).isSuccess
+    }
+
+    /** Millisecond ties must never let an uncheck sort before the check it compensates. */
+    private fun nextActivityTimestamp(): Long = maxOf(now(), lastActivityAt + 1L).also {
+        lastActivityAt = it
     }
 }

@@ -2,6 +2,7 @@ package com.example.tafakkurai.gratitude
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -49,6 +50,17 @@ class GratitudeStatsTest {
 
         assertEquals(4, stats.longest)
         assertEquals(2, stats.monthDays, "only July counts toward this month")
+    }
+
+    @Test
+    fun monthDaysCountsDistinctDates() {
+        val stats = computeGratStats(
+            activeDays = listOf("2026-07-10", "2026-07-10", "2026-07-11"),
+            total = 3,
+            todayKey = "2026-07-11",
+        )
+
+        assertEquals(2, stats.monthDays)
     }
 
     @Test
@@ -127,6 +139,65 @@ class GratitudeSearchTest {
     fun emptyQueryAndNoFilterReturnsEverything() {
         assertEquals(3, searchEntries(entries, "  ", null).size)
     }
+
+    @Test
+    fun searchCanUseTheSelectedLanguagesCategoryLabel() {
+        val results = searchEntries(entries, "odamlar", null) { key ->
+            if (key == "people") "Odamlar" else categoryOf(key).label
+        }
+
+        assertEquals(listOf("2"), results.map { it.id })
+    }
+}
+
+class GratitudeDraftTest {
+
+    @Test
+    fun blankDraftIsRejectedAtTheDomainBoundary() {
+        assertNull(normalizeGratitudeDraft(GratitudeDraft(text = "   ")))
+    }
+
+    @Test
+    fun threeThingsAreTrimmedDeduplicatedAndCapped() {
+        val normalized = normalizeGratitudeDraft(
+            GratitudeDraft(
+                mode = GratMode.THREE,
+                items = listOf(" Family ", "Health", "Family", "Learning"),
+                why = "  They supported me.  ",
+            ),
+        )!!
+
+        assertEquals(listOf("Family", "Health", "Learning"), normalized.items)
+        assertEquals("Family · Health · Learning", normalized.text)
+        assertEquals("They supported me.", normalized.why)
+    }
+
+    @Test
+    fun unknownVocabularyFallsBackWithoutPollutingStoredAnalytics() {
+        val normalized = normalizeGratitudeDraft(
+            GratitudeDraft(
+                text = "A quiet morning",
+                category = "future-server-category",
+                mood = "ecstatic",
+                emotions = listOf("Calm", "calm", "not-a-real-emotion"),
+            ),
+        )!!
+
+        assertEquals(DEFAULT_CATEGORY, normalized.category)
+        assertNull(normalized.mood)
+        assertEquals(listOf("Calm"), normalized.emotions)
+    }
+
+    @Test
+    fun staleRemoteEntryCannotOverwriteANewerLocalEdit() {
+        val local = GratEntry(id = "same", text = "new", entryDate = "2026-07-29", updatedAt = 20)
+        val stale = local.copy(text = "old", updatedAt = 10)
+        val current = local.copy(text = "server", updatedAt = 20)
+
+        assertFalse(shouldApplyRemoteEntry(local, stale))
+        assertTrue(shouldApplyRemoteEntry(local, current))
+        assertTrue(shouldApplyRemoteEntry(null, stale))
+    }
 }
 
 class GratitudeLabelTest {
@@ -171,6 +242,18 @@ class GratitudeChallengeTest {
 
         assertEquals(7, progress.currentDay)
         assertEquals(1f, progress.fraction)
+    }
+
+    @Test
+    fun invalidChallengeDaysNeverInflateProgress() {
+        val journey = GRAT_CHALLENGES.first { it.id == "c7" }
+        val progress = GratChallengeProgress(journey, joined = true, doneDays = setOf(-1, 0, 1, 8, 99))
+
+        assertEquals(1, progress.done)
+        assertEquals(2, progress.currentDay)
+        assertTrue(isValidChallengeDay("c7", 7))
+        assertFalse(isValidChallengeDay("c7", 8))
+        assertFalse(isValidChallengeDay("missing", 1))
     }
 }
 

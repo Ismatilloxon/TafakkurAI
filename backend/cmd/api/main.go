@@ -20,6 +20,7 @@ import (
 	"github.com/tafakkur/backend/internal/feed"
 	"github.com/tafakkur/backend/internal/gamify"
 	"github.com/tafakkur/backend/internal/gratitude"
+	"github.com/tafakkur/backend/internal/habits"
 	"github.com/tafakkur/backend/internal/learn"
 	"github.com/tafakkur/backend/internal/media"
 	"github.com/tafakkur/backend/internal/platform"
@@ -27,6 +28,7 @@ import (
 	"github.com/tafakkur/backend/internal/quran"
 	"github.com/tafakkur/backend/internal/ratelimit"
 	"github.com/tafakkur/backend/internal/server"
+	"github.com/tafakkur/backend/internal/sleep"
 	syncsvc "github.com/tafakkur/backend/internal/sync"
 	"github.com/tafakkur/backend/internal/telegram"
 	"github.com/tafakkur/backend/internal/tracker"
@@ -129,9 +131,15 @@ func run() error {
 
 	gratitudeH := gratitude.NewHandler(gratitude.NewService(gratitude.NewRepo(pool)), gamSvc, trackerSvc)
 
+	// Habits reads and writes the shared entity_state projection rather than tables of
+	// its own, so it needs the pool and nothing else. See internal/habits/domain.go.
+	habitsH := habits.NewHandler(habits.NewService(habits.NewStore(pool)), gamSvc, trackerSvc)
+
 	learnH := learn.NewHandler(learn.NewService(learn.NewRepo(pool)), gamSvc)
 
 	quranH := quran.NewHandler(quran.NewService(quran.NewRepo(pool)), gamSvc)
+
+	sleepH := sleep.NewHandler(sleep.NewService(sleep.NewRepo(pool)), gamSvc, trackerSvc)
 
 	// The generic sync platform. Its rate limit is per user and deliberately generous:
 	// a client only calls it every few minutes or when its queue crosses a threshold,
@@ -153,7 +161,9 @@ func run() error {
 		Learn:           learnH,
 		Tracker:         trackerH,
 		Gratitude:       gratitudeH,
+		Habits:          habitsH,
 		Quran:           quranH,
+		Sleep:           sleepH,
 		Sync:            syncH,
 		TelegramWebhook: tgWebhook,
 	})

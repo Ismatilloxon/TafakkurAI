@@ -14,7 +14,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -34,25 +33,37 @@ import com.example.tafakkurai.i18n.Language
 import com.example.tafakkurai.i18n.LanguageStore
 import com.example.tafakkurai.i18n.tr
 import androidx.compose.runtime.remember
+import com.example.tafakkurai.ui.components.TfErrorState
+import com.example.tafakkurai.ui.components.TfLoadingState
 
 /** Profile page — opened from the Today/Hub header avatar. */
 @Composable
-fun ProfileScreen(onBack: () -> Unit) {
+fun ProfileScreen(sessionKey: Int, onBack: () -> Unit) {
     val c = LocalTf.current
-    val vm: ProfileViewModel = viewModel {
+    val vm: ProfileViewModel = viewModel(key = "profile:$sessionKey") {
         ProfileViewModel(getKoin().get(), getKoin().get(), getKoin().get(), getKoin().get(), getKoin().get())
     }
     val languages = remember { getKoin().get<LanguageStore>() }
     val pickImage = rememberImagePicker { bytes ->
-        val bmp = bytes?.let { runCatching { it.decodeToImageBitmap() }.getOrNull() }
-        if (bmp != null) {
-            ProfileImage.set(bytes, bmp)
-            bytes?.let { vm.uploadPhoto(it) }
-        }
+        if (bytes != null) vm.selectPhoto(bytes)
     }
+    val openImagePicker = { if (!vm.photoUploading) pickImage() }
     Column(Modifier.fillMaxSize()) {
         BackBar(tr("profile.title"), onBack)
-        ScrollScreen {
+        when {
+            vm.loading && vm.user == null -> TfLoadingState(tr("profile.loading"), Modifier.weight(1f))
+            vm.errorKey != null && vm.user == null -> TfErrorState(
+                message = tr(vm.errorKey!!),
+                retryLabel = tr("common.retry"),
+                onRetry = vm::load,
+                modifier = Modifier.weight(1f),
+            )
+            else -> ScrollScreen {
+            vm.errorKey?.let { errorKey ->
+                Card {
+                    TfText(tr(errorKey), color = c.danger, size = 13f, lineHeight = 1.4f)
+                }
+            }
             // Header: big avatar + name + handle
             Column(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -61,11 +72,16 @@ fun ProfileScreen(onBack: () -> Unit) {
                 UserAvatar(
                     size = 88,
                     letter = (vm.user?.displayName ?: "?").take(1).uppercase(),
-                    onClick = pickImage,
+                    onClick = openImagePicker.takeUnless { vm.photoUploading },
                 )
                 TfText(
-                    tr("profile.change_photo"), color = c.accent, size = 13f, weight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 8.dp).then(pressScale(pickImage, 0.96f)),
+                    tr(if (vm.photoUploading) "common.loading" else "profile.change_photo"),
+                    color = if (vm.photoUploading) c.fg3 else c.accent,
+                    size = 13f,
+                    weight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp).then(
+                        if (vm.photoUploading) Modifier else pressScale(openImagePicker, 0.96f),
+                    ),
                 )
                 TfText(
                     vm.user?.displayName ?: "", color = c.fg, size = 22f, weight = FontWeight.Bold,
@@ -83,7 +99,7 @@ fun ProfileScreen(onBack: () -> Unit) {
                 ) {
                     Stat(tr("profile.streak"), "${vm.gamification?.streak ?: 0}")
                     Stat(tr("profile.level"), "${vm.gamification?.level ?: 0}")
-                    Stat("XP", "${vm.gamification?.xp ?: 0}/${vm.gamification?.xpNext ?: 0}")
+                    Stat(tr("profile.xp"), "${vm.gamification?.xp ?: 0}/${vm.gamification?.xpNext ?: 0}")
                 }
             }
 
@@ -131,7 +147,7 @@ fun ProfileScreen(onBack: () -> Unit) {
                                     weight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                                 )
                                 TfText(
-                                    language.englishName, color = c.fg3, size = 11.5f,
+                                    tr(language.detailKey), color = c.fg3, size = 11.5f,
                                     modifier = Modifier.padding(top = 1.dp),
                                 )
                             }
@@ -140,6 +156,7 @@ fun ProfileScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }
@@ -185,7 +202,7 @@ private fun ContactCard(vm: ProfileViewModel, asking: ContactAsk) {
                     ContactField(
                         value = email,
                         onValue = { email = it.trim() },
-                        placeholder = "you@example.com",
+                        placeholder = tr("profile.contact.email_placeholder"),
                         keyboard = KeyboardType.Email,
                         mono = false,
                     )

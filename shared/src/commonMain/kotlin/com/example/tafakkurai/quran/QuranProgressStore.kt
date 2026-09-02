@@ -6,6 +6,13 @@ import androidx.compose.runtime.setValue
 import com.example.tafakkurai.flashcards.epochMillis
 import com.example.tafakkurai.spiritual.PrefPersistence
 import com.example.tafakkurai.spiritual.QuranPersistence
+import com.example.tafakkurai.spiritual.QuranWriteScope
+import com.example.tafakkurai.spiritual.QuranWriteTransaction
+import com.example.tafakkurai.sync.ActivityLog
+import com.example.tafakkurai.sync.activityUuidV4
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Local-first, observable source of truth for Qurʼan reading progress — the same shape
@@ -20,6 +27,9 @@ class QuranProgressStore(
     private val storage: QuranPersistence,
     private val prefs: PrefPersistence,
     private val now: () -> Long = ::epochMillis,
+    private val activity: ActivityLog? = null,
+    private val writes: QuranWriteTransaction? = null,
+    private val currentLanguageCode: () -> String? = { null },
 ) {
     private var readAyahIds by mutableStateOf<Set<Int>>(emptySet())
 
@@ -28,7 +38,8 @@ class QuranProgressStore(
 
     private var lastReadPref by mutableStateOf<LastRead?>(null)
     private var reciterPref by mutableStateOf(DEFAULT_RECITER.id)
-    private var translationPref by mutableStateOf(DEFAULT_TRANSLATION.id)
+    /** Null means the user has not chosen an edition, so the app-language default remains live. */
+    private var translationPref by mutableStateOf<String?>(null)
 
     /** Which printed rasm the reader draws. One choice for the whole mushaf, not per surah. */
     private var mushafPref by mutableStateOf(DEFAULT_MUSHAF.id)
@@ -42,6 +53,9 @@ class QuranProgressStore(
     /** surahNumber → last ayah whose recitation was started, so playback resumes there. */
     private var lastListenedPref by mutableStateOf<Map<Int, Int>>(emptyMap())
 
+    /** Surahs intentionally opened as a learning scope, independent of completed ayahs. */
+    private var startedSurahsPref by mutableStateOf<Set<Int>>(emptySet())
+
     init { reload() }
 
     /** Re-read everything from storage. Call on app resume. */
@@ -49,12 +63,16 @@ class QuranProgressStore(
         readAyahIds = storage.readAyahs()
         countsBySurah = readAyahIds.groupingBy { it / 1000 }.eachCount()
         reciterPref = prefs.get(KEY_RECITER) ?: DEFAULT_RECITER.id
-        translationPref = translationOf(prefs.get(KEY_TRANSLATION)).id
+        // Absence is meaningful: keep following the active app language until the user taps
+        // an edition. Never persist a derived default or replace an existing valid choice.
+        translationPref = prefs.get(KEY_TRANSLATION)
+            ?.takeIf { stored -> TRANSLATIONS.any { it.id == stored } }
         mushafPref = mushafOf(prefs.get(KEY_MUSHAF)).id
         // Absent means never toggled — the meaning shows by default.
         showTranslationPref = prefs.get(KEY_SHOW_TRANSLATION) != "0"
         lastReadPref = prefs.get(KEY_LAST_READ)?.let(::decodeLastRead)
         lastListenedPref = decodeLastListened(prefs.get(KEY_LAST_LISTENED))
+        startedSurahsPref = decodeStartedSurahs(prefs.get(KEY_STARTED_SURAHS))
     }
 
     // ── Reads ────────────────────────────────────────────────────────────────
@@ -90,9 +108,10 @@ class QuranProgressStore(
 
     val reciter: Reciter get() = reciterOf(reciterPref)
 
-    val translationId: String get() = translationPref
+    val translationId: String
+        get() = translationPref ?: translationForAppLanguage(currentLanguageCode()).id
 
-    val translation: TranslationEdition get() = translationOf(translationPref)
+    val translation: TranslationEdition get() = translationOf(translationId)
 
     val mushafId: String get() = mushafPref
 
@@ -105,26 +124,82 @@ class QuranProgressStore(
 
     // ── Writes ───────────────────────────────────────────────────────────────
 
+    /** Starts one durable exact-surah learning intention and its event atomically. */
+    fun startSurah(surahNumber: Int) {
+        if (surahOf(surahNumber) == null || surahNumber in startedSurahsPref) return
+        val idKey = "$KEY_START_EVENT_PREFIX$surahNumber"
+        val eventId = prefs.get(idKey) ?: activityUuidV4()
+        val started = startedSurahsPref + surahNumber
+        val encoded = started.sorted().joinToString(",")
+        val stamp = now()
+        val recorded = commitActivity(
+            type = "surah_started",
+            properties = buildJsonObject { put("surah", surahNumber) },
+            entityId = "surah:$surahNumber",
+            eventId = eventId,
+            occurredAt = stamp,
+            strictWrite = {
+                putPreference(idKey, eventId)
+                putPreference(KEY_STARTED_SURAHS, encoded)
+            },
+            fallbackWrite = {
+                prefs.put(idKey, eventId)
+                prefs.put(KEY_STARTED_SURAHS, encoded)
+            },
+        )
+        if (!recorded) return
+        startedSurahsPref = started
+    }
+
     /** Marks an ayah read and moves the resume point. What tapping an ayah calls. */
     fun markRead(surahNumber: Int, ayahNumber: Int) {
         if (!isValid(surahNumber, ayahNumber)) return
         val id = Ayah.idOf(surahNumber, ayahNumber)
-        if (id !in readAyahIds) {
-            readAyahIds = readAyahIds + id
-            countsBySurah = countsBySurah + (surahNumber to (readCountOf(surahNumber) + 1))
-            storage.markRead(surahNumber, ayahNumber, now())
+        if (id in readAyahIds) {
+            setLastRead(surahNumber, ayahNumber)
+            return
         }
-        setLastRead(surahNumber, ayahNumber)
+        val surah = surahOf(surahNumber) ?: return
+        val lastRead = LastRead(surahNumber, surah.nameEnglish, ayahNumber)
+        val encodedLastRead = "$surahNumber:$ayahNumber"
+        val stamp = now()
+        val recorded = commitActivity(
+            type = "ayah_marked_read",
+            properties = ayahProperties(surahNumber, ayahNumber),
+            entityId = "ayah:$surahNumber:$ayahNumber",
+            occurredAt = stamp,
+            strictWrite = {
+                markRead(surahNumber, ayahNumber, stamp)
+                putPreference(KEY_LAST_READ, encodedLastRead)
+            },
+            fallbackWrite = {
+                storage.markRead(surahNumber, ayahNumber, stamp)
+                prefs.put(KEY_LAST_READ, encodedLastRead)
+            },
+        )
+        if (!recorded) return
+        readAyahIds = readAyahIds + id
+        countsBySurah = countsBySurah + (surahNumber to (readCountOf(surahNumber) + 1))
+        lastReadPref = lastRead
     }
 
     fun unmarkRead(surahNumber: Int, ayahNumber: Int) {
         if (!isValid(surahNumber, ayahNumber)) return
         val id = Ayah.idOf(surahNumber, ayahNumber)
-        if (id in readAyahIds) {
-            readAyahIds = readAyahIds - id
-            countsBySurah = countsBySurah + (surahNumber to (readCountOf(surahNumber) - 1).coerceAtLeast(0))
-            storage.unmarkRead(surahNumber, ayahNumber)
-        }
+        if (id !in readAyahIds) return
+        val stamp = now()
+        val recorded = commitActivity(
+            type = "ayah_unmarked_read",
+            properties = ayahProperties(surahNumber, ayahNumber),
+            entityId = "ayah:$surahNumber:$ayahNumber",
+            occurredAt = stamp,
+            strictWrite = { unmarkRead(surahNumber, ayahNumber) },
+            fallbackWrite = { storage.unmarkRead(surahNumber, ayahNumber) },
+        )
+        if (!recorded) return
+        readAyahIds = readAyahIds - id
+        countsBySurah = countsBySurah +
+            (surahNumber to (readCountOf(surahNumber) - 1).coerceAtLeast(0))
     }
 
     fun toggleRead(surahNumber: Int, ayahNumber: Int) {
@@ -134,45 +209,157 @@ class QuranProgressStore(
 
     fun setLastRead(surahNumber: Int, ayahNumber: Int) {
         val surah = surahOf(surahNumber) ?: return
+        if (ayahNumber !in 1..surah.ayahCount) return
         val value = LastRead(surahNumber, surah.nameEnglish, ayahNumber)
+        if (lastReadPref == value) return
+        val encoded = "$surahNumber:$ayahNumber"
+        if (!commitSourceWrite(
+                strictWrite = { putPreference(KEY_LAST_READ, encoded) },
+                fallbackWrite = { prefs.put(KEY_LAST_READ, encoded) },
+            )
+        ) return
         lastReadPref = value
-        prefs.put(KEY_LAST_READ, "$surahNumber:$ayahNumber")
     }
 
     /** Records the ayah being recited so the reader can resume it in a later session. */
     fun setLastListened(surahNumber: Int, ayahNumber: Int) {
         if (!isValid(surahNumber, ayahNumber)) return
-        lastListenedPref = lastListenedPref + (surahNumber to ayahNumber)
-        prefs.put(KEY_LAST_LISTENED, encodeLastListened(lastListenedPref))
+        if (lastListenedPref[surahNumber] == ayahNumber) return
+        val updated = lastListenedPref + (surahNumber to ayahNumber)
+        val encoded = encodeLastListened(updated)
+        val stamp = now()
+        val recorded = commitActivity(
+            type = "ayah_listened",
+            properties = ayahProperties(surahNumber, ayahNumber),
+            entityId = "ayah:$surahNumber:$ayahNumber",
+            occurredAt = stamp,
+            strictWrite = { putPreference(KEY_LAST_LISTENED, encoded) },
+            fallbackWrite = { prefs.put(KEY_LAST_LISTENED, encoded) },
+        )
+        if (recorded) lastListenedPref = updated
     }
 
     fun setReciter(id: String) {
         val resolved = reciterOf(id)
+        if (reciterPref == resolved.id) return
+        val stamp = now()
+        val recorded = commitActivity(
+            type = "reciter_changed",
+            properties = buildJsonObject { put("reciter_id", resolved.id) },
+            entityId = "quran:settings:reciter",
+            occurredAt = stamp,
+            strictWrite = { putPreference(KEY_RECITER, resolved.id) },
+            fallbackWrite = { prefs.put(KEY_RECITER, resolved.id) },
+        )
+        if (!recorded) return
         reciterPref = resolved.id
-        prefs.put(KEY_RECITER, resolved.id)
     }
 
     fun setTranslation(id: String) {
         val resolved = translationOf(id)
+        // Comparing the saved preference (not the effective locale-derived value) matters:
+        // explicitly choosing the currently shown default must pin that choice for later
+        // app-language changes.
+        if (translationPref == resolved.id) return
+        val stamp = now()
+        val recorded = commitActivity(
+            type = "translation_changed",
+            properties = buildJsonObject { put("translation_id", resolved.id) },
+            entityId = "quran:settings:translation",
+            occurredAt = stamp,
+            strictWrite = { putPreference(KEY_TRANSLATION, resolved.id) },
+            fallbackWrite = { prefs.put(KEY_TRANSLATION, resolved.id) },
+        )
+        if (!recorded) return
         translationPref = resolved.id
-        prefs.put(KEY_TRANSLATION, resolved.id)
     }
 
     fun setMushaf(id: String) {
         val resolved = mushafOf(id)
+        if (mushafPref == resolved.id) return
+        val stamp = now()
+        val recorded = commitActivity(
+            type = "mushaf_changed",
+            properties = buildJsonObject { put("mushaf_id", resolved.id) },
+            entityId = "quran:settings:mushaf",
+            occurredAt = stamp,
+            strictWrite = { putPreference(KEY_MUSHAF, resolved.id) },
+            fallbackWrite = { prefs.put(KEY_MUSHAF, resolved.id) },
+        )
+        if (!recorded) return
         mushafPref = resolved.id
-        prefs.put(KEY_MUSHAF, resolved.id)
     }
 
     fun setShowTranslation(on: Boolean) {
+        if (showTranslationPref == on) return
+        val encoded = if (on) "1" else "0"
+        val stamp = now()
+        val recorded = commitActivity(
+            type = "translation_visibility_changed",
+            properties = buildJsonObject { put("visible", on) },
+            entityId = "quran:settings:translation-visibility",
+            occurredAt = stamp,
+            strictWrite = { putPreference(KEY_SHOW_TRANSLATION, encoded) },
+            fallbackWrite = { prefs.put(KEY_SHOW_TRANSLATION, encoded) },
+        )
+        if (!recorded) return
         showTranslationPref = on
-        prefs.put(KEY_SHOW_TRANSLATION, if (on) "1" else "0")
     }
 
     // ── Internals ────────────────────────────────────────────────────────────
 
+    /**
+     * Uses the production SQL transaction port when present. A store wired to an
+     * [ActivityLog] without that port fails closed because best-effort storage plus a durable
+     * activity would split one action into two truths. Port-only constructions remain useful
+     * for pure in-memory tests and previews where no activity log exists.
+     */
+    private fun commitSourceWrite(
+        strictWrite: QuranWriteScope.() -> Unit,
+        fallbackWrite: () -> Unit,
+    ): Boolean {
+        val transaction = writes
+        if (transaction != null) return transaction.commit(strictWrite)
+        if (activity != null) return false
+        return runCatching(fallbackWrite).isSuccess
+    }
+
+    private fun commitActivity(
+        type: String,
+        properties: JsonObject,
+        entityId: String,
+        occurredAt: Long,
+        eventId: String? = null,
+        strictWrite: QuranWriteScope.() -> Unit,
+        fallbackWrite: () -> Unit,
+    ): Boolean {
+        val transaction = writes
+        if (transaction != null) {
+            return transaction.commit {
+                strictWrite()
+                check(
+                    activity?.record(
+                        feature = "quran",
+                        type = type,
+                        properties = properties,
+                        entityId = entityId,
+                        eventId = eventId,
+                        occurredAtOverride = occurredAt,
+                    ) ?: true,
+                ) { "Could not append Qurʼan ActivityEvent" }
+            }
+        }
+        if (activity != null) return false
+        return runCatching(fallbackWrite).isSuccess
+    }
+
     private fun isValid(surahNumber: Int, ayahNumber: Int): Boolean =
         ayahNumber in 1..ayahCountOf(surahNumber)
+
+    private fun ayahProperties(surahNumber: Int, ayahNumber: Int) = buildJsonObject {
+        put("surah", surahNumber)
+        put("ayah", ayahNumber)
+    }
 
     private fun decodeLastRead(raw: String): LastRead? {
         val parts = raw.split(":")
@@ -200,6 +387,12 @@ class QuranProgressStore(
         }.toMap()
     }
 
+    private fun decodeStartedSurahs(raw: String?): Set<Int> = raw
+        ?.split(',')
+        ?.mapNotNull { it.toIntOrNull() }
+        ?.filterTo(linkedSetOf()) { it in 1..114 }
+        .orEmpty()
+
     companion object {
         const val KEY_LAST_READ: String = "quran.lastRead"
         const val KEY_LAST_LISTENED: String = "quran.lastListened"
@@ -207,5 +400,7 @@ class QuranProgressStore(
         const val KEY_TRANSLATION: String = "quran.translation"
         const val KEY_MUSHAF: String = "quran.mushaf"
         const val KEY_SHOW_TRANSLATION: String = "quran.showTranslation"
+        const val KEY_STARTED_SURAHS: String = "quran.startedSurahs"
+        const val KEY_START_EVENT_PREFIX: String = "quran.startEvent."
     }
 }

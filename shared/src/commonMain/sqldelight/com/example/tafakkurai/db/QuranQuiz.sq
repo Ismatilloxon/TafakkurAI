@@ -1,0 +1,60 @@
+CREATE TABLE quranQuizGoal (
+    surahNumber INTEGER NOT NULL CHECK(surahNumber BETWEEN 1 AND 114),
+    source TEXT NOT NULL CHECK(source IN ('quran', 'hifz')),
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY(surahNumber, source)
+);
+
+CREATE TABLE quranQuizAttempt (
+    id TEXT NOT NULL PRIMARY KEY,
+    surahNumber INTEGER NOT NULL CHECK(surahNumber BETWEEN 1 AND 114),
+    correct INTEGER NOT NULL CHECK(correct >= 0),
+    total INTEGER NOT NULL CHECK(total > 0),
+    completedAt INTEGER NOT NULL,
+    CHECK(correct <= total)
+);
+
+CREATE INDEX quranQuizAttempt_surah_time ON quranQuizAttempt(surahNumber, completedAt DESC);
+
+selectGoals:
+SELECT * FROM quranQuizGoal ORDER BY updatedAt DESC, surahNumber ASC;
+
+selectGoal:
+SELECT * FROM quranQuizGoal WHERE surahNumber = ? ORDER BY source;
+
+selectGoalSource:
+SELECT * FROM quranQuizGoal WHERE surahNumber = ? AND source = ?;
+
+insertGoal:
+INSERT OR IGNORE INTO quranQuizGoal(surahNumber, source, createdAt, updatedAt)
+VALUES (?, ?, ?, ?);
+
+-- One immutable row per source makes provenance a set-union across devices. A stale
+-- Qurʼan row can no longer replace a Hifz row for the same surah during generic sync.
+selectAttempt:
+SELECT * FROM quranQuizAttempt WHERE id = ?;
+
+selectLatestAttempt:
+SELECT * FROM quranQuizAttempt
+WHERE surahNumber = ?
+ORDER BY completedAt DESC
+LIMIT 1;
+
+selectLatestAttempts:
+SELECT a.*
+FROM quranQuizAttempt a
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM quranQuizAttempt newer
+    WHERE newer.surahNumber = a.surahNumber
+      AND (
+          newer.completedAt > a.completedAt OR
+          (newer.completedAt = a.completedAt AND newer.id > a.id)
+      )
+)
+ORDER BY a.completedAt DESC;
+
+insertAttempt:
+INSERT OR IGNORE INTO quranQuizAttempt(id, surahNumber, correct, total, completedAt)
+VALUES (?, ?, ?, ?, ?);

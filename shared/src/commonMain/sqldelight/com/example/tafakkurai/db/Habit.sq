@@ -1,0 +1,82 @@
+-- A habit's definition. Local-first: the app writes here and nowhere else, and the sync
+-- platform carries the row to the backend on its own schedule (SyncSchema discovers this
+-- table at startup and installs triggers on it — there is no registration step).
+--
+-- Every column name here is a wire contract. The sync payload is assembled by SQLite from
+-- `pragma_table_info`, so the JSON keys ARE these names, and the Go structs in
+-- backend/internal/habits/domain.go decode them one for one. Renaming a column without
+-- renaming its json tag on the server does not fail loudly — the field just silently
+-- stops arriving.
+--
+-- What is deliberately NOT stored: streak, longest streak and completion rate. They are
+-- derived from `habitEntry` on every read (HabitStats.kt / stats.go). A stored streak is
+-- a denormalisation that goes wrong the first time an entry syncs out of order, and once
+-- it has been overwritten there is nothing left to recompute it from.
+CREATE TABLE habit (
+    id              TEXT NOT NULL PRIMARY KEY,      -- client-generated, stable across sync
+    name            TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    categoryId      TEXT NOT NULL DEFAULT 'custom',
+    colorKey        TEXT NOT NULL DEFAULT 'teal',   -- palette token, not a hex value
+    icon            TEXT NOT NULL DEFAULT 'sparkles',
+    slot            TEXT NOT NULL DEFAULT 'anytime',-- morning | afternoon | anytime | evening
+    timeLocal       TEXT NOT NULL DEFAULT '',       -- "07:00", '' for an anytime habit
+    reminderEnabled INTEGER NOT NULL DEFAULT 0,
+    reminderTime    TEXT NOT NULL DEFAULT '',
+    smartTiming     INTEGER NOT NULL DEFAULT 0,     -- let the coach pick the moment
+    frequency       TEXT NOT NULL DEFAULT 'daily',  -- daily | weekdays | custom
+    weekdays        TEXT NOT NULL DEFAULT '[]',     -- JSON array, 0=Mon … 6=Sun
+    difficulty      TEXT NOT NULL DEFAULT 'medium', -- easy | medium | hard
+    goalType        TEXT NOT NULL DEFAULT 'check',  -- check | count | duration
+    goalTarget      INTEGER NOT NULL DEFAULT 1,
+    goalUnit        TEXT NOT NULL DEFAULT '',
+    motivation      TEXT NOT NULL DEFAULT '',       -- "why this matters to you"
+    state           TEXT NOT NULL DEFAULT 'active', -- active | paused | archived
+    pausedUntil     TEXT NOT NULL DEFAULT '',       -- date key, '' = until resumed
+    sortIndex       INTEGER NOT NULL DEFAULT 0,
+    createdAt       INTEGER NOT NULL,
+    updatedAt       INTEGER NOT NULL,
+    deleted         INTEGER NOT NULL DEFAULT 0      -- tombstone; survives until synced
+);
+
+CREATE INDEX habit_state ON habit(deleted, state, sortIndex);
+
+upsert:
+INSERT OR REPLACE INTO habit (
+    id, name, description, categoryId, colorKey, icon, slot, timeLocal,
+    reminderEnabled, reminderTime, smartTiming, frequency, weekdays, difficulty,
+    goalType, goalTarget, goalUnit, motivation, state, pausedUntil, sortIndex,
+    createdAt, updatedAt, deleted
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectAll:
+SELECT * FROM habit WHERE deleted = 0 ORDER BY sortIndex, createdAt, id;
+
+selectActive:
+SELECT * FROM habit WHERE deleted = 0 AND state = 'active' ORDER BY sortIndex, createdAt, id;
+
+selectById:
+SELECT * FROM habit WHERE id = ?;
+
+setState:
+UPDATE habit SET state = ?, pausedUntil = ?, updatedAt = ? WHERE id = ?;
+
+setSortIndex:
+UPDATE habit SET sortIndex = ?, updatedAt = ? WHERE id = ?;
+
+setReminder:
+UPDATE habit SET reminderEnabled = ?, reminderTime = ?, smartTiming = ?, updatedAt = ? WHERE id = ?;
+
+-- Tombstone rather than DELETE so the removal still reaches the backend after a restart.
+softDelete:
+UPDATE habit SET deleted = 1, updatedAt = ? WHERE id = ?;
+
+-- Undo, straight after a delete snackbar. The row never left, so this is one UPDATE.
+restore:
+UPDATE habit SET deleted = 0, updatedAt = ? WHERE id = ?;
+
+purgeDeleted:
+DELETE FROM habit WHERE deleted = 1;
+
+countActive:
+SELECT count(*) FROM habit WHERE deleted = 0 AND state = 'active';

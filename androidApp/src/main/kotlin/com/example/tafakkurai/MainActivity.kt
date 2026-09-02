@@ -13,6 +13,7 @@ import com.example.tafakkurai.db.DatabaseDriverFactory
 import com.example.tafakkurai.location.PrayerLocationManager
 import com.example.tafakkurai.quran.AndroidAudioFileStore
 import com.example.tafakkurai.quran.AndroidAyahAudioPlayer
+import com.example.tafakkurai.sync.AndroidConnectivity
 import io.ktor.client.engine.okhttp.OkHttp
 import org.koin.core.context.GlobalContext
 import org.koin.dsl.module
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
                 tokenProvider = PersistentTokenProvider(SecureStore(applicationContext)),
                 audioPlayer = AndroidAyahAudioPlayer(applicationContext),
                 audioFileStore = AndroidAudioFileStore(applicationContext),
+                connectivity = AndroidConnectivity(applicationContext),
             ) {
                 modules(module {
                     single { DatabaseDriverFactory(applicationContext) }

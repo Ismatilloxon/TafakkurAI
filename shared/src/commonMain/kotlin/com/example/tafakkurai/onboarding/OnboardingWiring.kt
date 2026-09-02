@@ -20,12 +20,8 @@ import uz.tafakkur.domain.model.AuthProvider as DomainAuthProvider
 class PrefOnboardingGate(private val prefs: PrefPersistence) : OnboardingGate {
 
     override var completed: Boolean
-        get() = prefs.get(KEY) == "1"
-        set(value) = prefs.put(KEY, if (value) "1" else "0")
-
-    private companion object {
-        const val KEY = "onboarding.seen"
-    }
+        get() = prefs.get(AppPrefs.ONBOARDING_SEEN) == "1"
+        set(value) = prefs.put(AppPrefs.ONBOARDING_SEEN, if (value) "1" else "0")
 }
 
 /**
@@ -53,7 +49,8 @@ fun clearSessionIfReinstalled(prefs: PrefPersistence, tokens: TokenProvider) {
 class ProviderNotConfigured(val provider: AuthProvider) : Exception("$provider sign-in is not configured")
 
 /**
- * [OnboardingAuth] backed by the real backend, replacing [DemoOnboardingAuth].
+ * [OnboardingAuth] backed by the real backend. Production never falls back to a local
+ * authentication simulator: a successful callback always represents a persisted session.
  *
  * Every provider works end to end: the backend verifies the OTP itself, Apple's identity token
  * is minted by the system sheet ([appleSignIn]) and verified server-side against Apple's JWKS,
@@ -67,6 +64,7 @@ class BackendOnboardingAuth(
     private val verifyTelegram: VerifyTelegramCodeUseCase,
     private val startGoogle: StartGoogleLoginUseCase,
     private val pollGoogle: PollGoogleLoginUseCase,
+    private val prefs: PrefPersistence,
 ) : OnboardingAuth {
 
     /** Handed back by `POST /v1/auth/otp/start` and required to redeem the code. */
@@ -102,6 +100,7 @@ class BackendOnboardingAuth(
                 null
             }
             if (session != null) {
+                rememberSession(session)
                 googleState = null
                 return true
             }
@@ -119,7 +118,7 @@ class BackendOnboardingAuth(
 
     override suspend fun verifyTelegramCode(code: String): Boolean = try {
         // Stores the tokens through TokenProvider, so the session survives a cold launch.
-        verifyTelegram(code)
+        rememberSession(verifyTelegram(code))
         true
     } catch (e: Exception) {
         // A wrong or expired code is the expected failure here; the screen keeps the user
@@ -132,7 +131,7 @@ class BackendOnboardingAuth(
             // The sheet suspends here until the user approves or dismisses it; SignInUseCase
             // then stores the tokens through TokenProvider, so the session survives a cold launch.
             AuthProvider.APPLE ->
-                signIn(DomainAuthProvider.Apple(idToken = appleSignIn().idToken))
+                rememberSession(signIn(DomainAuthProvider.Apple(idToken = appleSignIn().idToken)))
 
             else -> throw ProviderNotConfigured(provider)
         }
@@ -147,12 +146,18 @@ class BackendOnboardingAuth(
         return try {
             // SignInUseCase stores the tokens through TokenProvider, so a successful call here
             // is what makes the session survive the next cold launch.
-            signIn(DomainAuthProvider.Phone(verificationId = id, code = code))
+            rememberSession(signIn(DomainAuthProvider.Phone(verificationId = id, code = code)))
             true
         } catch (e: Exception) {
             // NetworkExecutor has already mapped, logged and shown the failure; the screen only
             // needs to know to keep the user on the code field.
             false
         }
+    }
+
+    /** Cache identity from the auth response so sync can attach without a second request. */
+    private fun rememberSession(session: uz.tafakkur.domain.model.AuthSession) {
+        prefs.put(AppPrefs.USER_ID, session.user.uid)
+        prefs.put(AppPrefs.DISPLAY_NAME, session.user.displayName)
     }
 }

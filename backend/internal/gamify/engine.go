@@ -18,6 +18,21 @@ const (
 	EventAyahMemorized    Event = "ayah_memorized"
 )
 
+func (e Event) valid() bool {
+	switch e {
+	case EventPrayerTracked,
+		EventPrayerOnTime,
+		EventThoughtPublished,
+		EventLessonCompleted,
+		EventTrackerEntry,
+		EventDailyCheckin,
+		EventAyahMemorized:
+		return true
+	default:
+		return false
+	}
+}
+
 // State mirrors the gamification row.
 type State struct {
 	Streak         int       `json:"streak"`
@@ -61,11 +76,18 @@ func NewState() State {
 	return State{Streak: 0, Level: 1, XP: 0, XPNext: xpNextFor(1)}
 }
 
-// dayDiff returns the number of civil days from a to b (both interpreted at UTC
-// midnight). Negative if b precedes a.
+// civilDate retains the calendar date represented by t and deliberately discards
+// its instant and location. Callers must first put an instant in the user's IANA
+// timezone; converting to UTC before calling this function would change the day
+// around midnight.
+func civilDate(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// dayDiff returns the number of civil days from a to b. Negative if b precedes a.
 func dayDiff(a, b time.Time) int {
-	a = time.Date(a.Year(), a.Month(), a.Day(), 0, 0, 0, 0, time.UTC)
-	b = time.Date(b.Year(), b.Month(), b.Day(), 0, 0, 0, 0, time.UTC)
+	a = civilDate(a)
+	b = civilDate(b)
 	return int(b.Sub(a).Hours() / 24)
 }
 
@@ -87,15 +109,20 @@ func Apply(s State, ev Event, today time.Time) State {
 	case s.LastActiveDate.IsZero():
 		s.Streak = 1
 	default:
-		switch dayDiff(s.LastActiveDate, today) {
-		case 0:
+		diff := dayDiff(s.LastActiveDate, today)
+		switch {
+		case diff == 0:
 			// already active today — streak unchanged
-		case 1:
+		case diff == 1:
 			s.Streak++
-		default:
+		case diff > 1:
 			s.Streak = 1
+		default:
+			// Offline events can arrive out of order. A historical activity earns
+			// XP, but it must never move the current streak's anchor backwards.
+			return s
 		}
 	}
-	s.LastActiveDate = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+	s.LastActiveDate = civilDate(today)
 	return s
 }

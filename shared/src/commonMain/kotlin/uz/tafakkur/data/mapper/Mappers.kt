@@ -83,7 +83,7 @@ fun CoachMessageDto.toDomain() = CoachMessage(id, role, content, createdAt)
 fun CoachHistoryDto.toDomain() = CoachHistory(conversationId, messages.map { it.toDomain() }, nextCursor)
 
 fun SubjectDto.toDomain() = Subject(id, title, description, orderIndex)
-fun LessonDto.toDomain() = Lesson(id, subjectId, title, body, orderIndex)
+fun LessonDto.toDomain() = Lesson(id, subjectId, title, body, orderIndex, completed)
 
 fun TrackerEntryDto.toDomain() = TrackerEntry(
     id = id,

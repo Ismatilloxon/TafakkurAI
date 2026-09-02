@@ -35,7 +35,9 @@ CREATE TABLE hifzReview (
     ayah       INTEGER AS kotlin.Int NOT NULL,
     rating     INTEGER AS kotlin.Int NOT NULL,
     reviewedAt INTEGER NOT NULL,
-    intervalDays REAL NOT NULL
+    intervalDays REAL NOT NULL,
+    localDate   TEXT NOT NULL,
+    timezone    TEXT NOT NULL
 );
 
 CREATE INDEX hifzReview_at ON hifzReview(reviewedAt);
@@ -107,17 +109,34 @@ DELETE FROM hifzCard;
 
 -- review log --------------------------------------------------------------
 insertReview:
-INSERT INTO hifzReview (id, surah, ayah, rating, reviewedAt, intervalDays)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO hifzReview (id, surah, ayah, rating, reviewedAt, intervalDays, localDate, timezone)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
-countReviewsSince:
-SELECT count(*) FROM hifzReview WHERE reviewedAt >= ?;
+countUniqueReviewsOnDate:
+SELECT count(*)
+FROM (
+    SELECT DISTINCT surah, ayah
+    FROM hifzReview
+    WHERE localDate = ?
+);
 
 reviewDaysSince:
 SELECT DISTINCT reviewedAt / 86400000 AS dayIndex
 FROM hifzReview
 WHERE reviewedAt >= ?
 ORDER BY dayIndex DESC;
+
+reviewTimesSince:
+SELECT reviewedAt
+FROM hifzReview
+WHERE reviewedAt >= ?
+ORDER BY reviewedAt DESC;
+
+reviewLocalDates:
+SELECT DISTINCT localDate
+FROM hifzReview
+WHERE localDate != ''
+ORDER BY localDate DESC;
 
 clearReviews:
 DELETE FROM hifzReview;

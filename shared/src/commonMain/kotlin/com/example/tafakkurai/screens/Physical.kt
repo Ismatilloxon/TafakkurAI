@@ -14,127 +14,111 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.*
+import com.example.tafakkurai.i18n.tr
+import com.example.tafakkurai.i18n.weekdayIndex
+import com.example.tafakkurai.prayer.deviceDate
+import com.example.tafakkurai.sync.ActivityLog
+import com.example.tafakkurai.sync.RecordedActivity
+import com.example.tafakkurai.sync.activityUuidV4
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.ui.components.TfPrimaryButton
+import com.example.tafakkurai.ui.components.TfSecondaryButton
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.koin.mp.KoinPlatform.getKoin
 import uz.tafakkur.domain.usecase.CreateTrackerEntryUseCase
 import kotlin.math.roundToInt
 
 // ── Sleep & rest ─────────────────────────────────────────────────────────────
-@Composable
-fun SleepScreen(onBack: () -> Unit) {
-    val c = LocalTf.current
-    val s = TSLEEP
-    Column(Modifier.fillMaxSize()) {
-        BackBar("Sleep", onBack)
-        ScrollBody {
-            InsetCard(pad = 18) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    RingGauge(s.score / 100f, c.named("purple"), c.card3, strokeWidth = 8f, size = 96) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            TfText("${s.score}", color = c.fg, size = 28f, weight = FontWeight.Bold, family = Fonts.mono)
-                            TfText("score", color = c.fg3, size = 10f)
-                        }
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TfText("${s.asleep} asleep", color = c.fg, size = 18f, weight = FontWeight.Bold, family = Fonts.display)
-                        SleepMeta("Bedtime", s.bedtime); SleepMeta("Wake", s.wake); SleepMeta("In bed", s.inBed)
-                    }
-                }
-            }
-            // Hypnogram
-            Overline("LAST NIGHT", color = c.fg3)
-            InsetCard {
-                Hypnogram(s.stages)
-                Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    listOf("awake" to "Awake", "rem" to "REM", "core" to "Core", "deep" to "Deep").forEach { (k, label) ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Box(Modifier.size(8.dp).clip(CircleShape).background(SLEEP_COL.getValue(k)))
-                            TfText(label, color = c.fg3, size = 11f)
-                        }
-                    }
-                }
-            }
-            // Stage breakdown
-            Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                s.breakdown.forEach { b ->
-                    Card(Modifier.fillMaxWidth(), pad = 14) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Box(Modifier.size(10.dp).clip(CircleShape).background(b.color))
-                            TfText(b.label, color = c.fg, size = 14f, weight = FontWeight.SemiBold)
-                            TfText(b.sub, color = c.fg3, size = 11.5f, modifier = Modifier.weight(1f))
-                            TfText("${b.min / 60}h ${b.min % 60}m", color = c.fg2, size = 13f, family = Fonts.mono)
-                        }
-                        ProgressBar(b.pct, b.color, modifier = Modifier.fillMaxWidth().padding(top = 9.dp))
-                    }
-                }
-            }
-            // metric tiles
-            Row(Modifier.fillMaxWidth().padding(horizontal = HPAD.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                s.metrics.forEach { m -> StatTile("${m.value}${if (m.unit.isNotEmpty()) " " + m.unit else ""}", m.label, m.color) }
-            }
-            // weekly bars
-            Overline("THIS WEEK · GOAL ${s.goalH}h", color = c.fg3)
-            InsetCard {
-                MiniBars(s.week, c.named("purple"), c.card3, modifier = Modifier.fillMaxWidth().height(80.dp))
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    listOf("M", "T", "W", "T", "F", "S", "S").forEach { TfText(it, color = c.fg3, size = 10f, family = Fonts.mono) }
-                }
-            }
-            ProactiveCard("You averaged ${s.week.average().let { (it * 10).roundToInt() / 10.0 }}h this week. Going to bed 30 minutes earlier would make Fajr noticeably easier.", modifier = Modifier.padding(horizontal = HPAD.dp))
-        }
-    }
-}
-
-@Composable
-private fun SleepMeta(label: String, value: String) {
-    val c = LocalTf.current
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        TfText(label, color = c.fg3, size = 12f, modifier = Modifier.width(58.dp))
-        TfText(value, color = c.fg2, size = 12f, family = Fonts.mono)
-    }
-}
-
-@Composable
-private fun Hypnogram(stages: List<SleepStage>) {
-    val laneOf = mapOf("awake" to 0, "rem" to 1, "core" to 2, "deep" to 3)
-    val total = stages.sumOf { it.m }.toFloat().coerceAtLeast(1f)
-    Canvas(Modifier.fillMaxWidth().height(96.dp)) {
-        val laneH = size.height / 4f
-        var x = 0f
-        stages.forEach { st ->
-            val w = (st.m / total) * size.width
-            val lane = laneOf[st.s] ?: 2
-            val col = SLEEP_COL[st.s] ?: Color.Gray
-            drawRoundRect(
-                color = col,
-                topLeft = Offset(x, lane * laneH + laneH * 0.18f),
-                size = Size(w.coerceAtLeast(1f), laneH * 0.64f),
-                cornerRadius = CornerRadius(3f, 3f),
-            )
-            x += w
-        }
-    }
-}
+//
+// Sleep lives in `com.example.tafakkurai.sleep`; `SleepScreen` scores real sessions from
+// `SleepStore`. No static sleep sample remains in the production source set.
 
 // ── Sport & Gym ──────────────────────────────────────────────────────────────
+private data class RecordedSportActivity(
+    val id: String,
+    val type: SportType,
+    val minutes: Int,
+    val kcal: Int,
+    val localDate: String,
+    val occurredAt: Long,
+)
+
+private fun projectSportActivities(events: List<RecordedActivity>): List<RecordedSportActivity> {
+    val removed = events.asSequence()
+        .filter { it.feature in SPORT_EVENT_FEATURES && it.type == "sport_activity_removed" }
+        .map { it.entityId }
+        .toSet()
+    return events.asSequence()
+        .filter { it.feature in SPORT_EVENT_FEATURES && it.type == "sport_activity_logged" }
+        .filter { it.entityId !in removed }
+        .distinctBy { it.entityId }
+        .mapNotNull { event ->
+            val key = event.properties["type"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            val type = TSPORT_TYPES.firstOrNull { it.key == key } ?: return@mapNotNull null
+            val minutes = event.properties["minutes"]?.jsonPrimitive?.content?.toIntOrNull()
+                ?.coerceIn(1, MAX_SPORT_MINUTES) ?: return@mapNotNull null
+            val kcal = event.properties["kcal"]?.jsonPrimitive?.content?.toIntOrNull()
+                ?.coerceAtLeast(0) ?: 0
+            RecordedSportActivity(event.entityId, type, minutes, kcal, event.localDate, event.occurredAt)
+        }
+        .sortedByDescending { it.occurredAt }
+        .toList()
+}
+
+private fun sportDateKey(offsetDays: Int): String {
+    val date = deviceDate(offsetDays)
+    fun pad(value: Int): String = value.toString().padStart(2, '0')
+    return "${date.year}-${pad(date.month)}-${pad(date.day)}"
+}
+
+private const val MAX_SPORT_MINUTES = 12 * 60
+private val SPORT_EVENT_FEATURES = setOf("sport", "physical")
+
 @Composable
 fun SportGymScreen(onBack: () -> Unit) {
-    var setup by remember { mutableStateOf(true) }
-    var weight by remember { mutableStateOf(72) }
-    var height by remember { mutableStateOf(176) }
-    var age by remember { mutableStateOf(24) }
-    var goal by remember { mutableStateOf(1) }
+    val activity = remember { getKoin().get<ActivityLog>() }
+    val events by activity.events.collectAsState()
+    val profile = events.firstOrNull {
+        it.feature in SPORT_EVENT_FEATURES && it.type == "sport_profile_configured"
+    }
+    var setup by remember(profile?.id) { mutableStateOf(profile == null) }
+    var weight by remember(profile?.id) {
+        mutableStateOf(profile?.properties?.get("weight_kg")?.jsonPrimitive?.content?.toIntOrNull() ?: 72)
+    }
+    var height by remember(profile?.id) {
+        mutableStateOf(profile?.properties?.get("height_cm")?.jsonPrimitive?.content?.toIntOrNull() ?: 176)
+    }
+    var age by remember(profile?.id) {
+        mutableStateOf(profile?.properties?.get("age")?.jsonPrimitive?.content?.toIntOrNull() ?: 24)
+    }
+    var goal by remember(profile?.id) {
+        mutableStateOf(profile?.properties?.get("goal_index")?.jsonPrimitive?.content?.toIntOrNull() ?: 1)
+    }
 
     Column(Modifier.fillMaxSize()) {
-        BackBar("Sport & Gym", onBack)
-        if (setup) SportSetup(weight, { weight = it }, height, { height = it }, age, { age = it }, goal, { goal = it }) { setup = false }
-        else SportDashboard(weight, goal)
+        BackBar(tr("sport.title"), onBack)
+        if (setup) SportSetup(weight, { weight = it }, height, { height = it }, age, { age = it }, goal, { goal = it }) {
+            val saved = activity.record(
+                "sport",
+                "sport_profile_configured",
+                buildJsonObject {
+                    put("weight_kg", weight)
+                    put("height_cm", height)
+                    put("age", age)
+                    put("goal_index", goal)
+                },
+            )
+            if (saved) setup = false
+        }
+        else SportDashboard(weight, goal, onEditProfile = { setup = true })
     }
 }
 
@@ -147,30 +131,41 @@ private fun ColumnScope.SportSetup(
     val bmi = weight / ((height / 100f) * (height / 100f))
     ScrollBody {
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            TfText("Let's set you up", color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.display)
-            TfText("A few numbers so I can tailor training and track balance.", color = c.fg2, size = 13.5f, lineHeight = 1.5f)
+            TfText(tr("sport.setup.title"), color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.display)
+            TfText(tr("sport.setup.detail"), color = c.fg2, size = 13.5f, lineHeight = 1.5f)
         }
         InsetCard {
-            Stepper("Height", "$height cm", { onHeight(height - 1) }, { onHeight(height + 1) })
-            Spacer(Modifier.height(10.dp)); Stepper("Weight", "$weight kg", { onWeight(weight - 1) }, { onWeight(weight + 1) })
-            Spacer(Modifier.height(10.dp)); Stepper("Age", "$age", { onAge(age - 1) }, { onAge(age + 1) })
+            Stepper(
+                tr("sport.setup.height"), tr("sport.unit.centimeters", height),
+                { onHeight((height - 1).coerceAtLeast(100)) }, { onHeight((height + 1).coerceAtMost(240)) },
+            )
+            Spacer(Modifier.height(10.dp))
+            Stepper(
+                tr("sport.setup.weight"), tr("sport.unit.kilograms", weight),
+                { onWeight((weight - 1).coerceAtLeast(30)) }, { onWeight((weight + 1).coerceAtMost(300)) },
+            )
+            Spacer(Modifier.height(10.dp))
+            Stepper(
+                tr("sport.setup.age"), "$age",
+                { onAge((age - 1).coerceAtLeast(13)) }, { onAge((age + 1).coerceAtMost(100)) },
+            )
         }
         InsetCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Overline("LIVE BMI")
+                    Overline(tr("sport.setup.bmi"))
                     TfText(((bmi * 10).roundToInt() / 10.0).toString(), color = c.fg, size = 30f, weight = FontWeight.Bold, family = Fonts.mono)
                 }
                 val (label, col) = when {
-                    bmi < 18.5 -> "Underweight" to c.warn
-                    bmi < 25 -> "Healthy" to c.green
-                    bmi < 30 -> "Overweight" to c.warn
-                    else -> "High" to c.danger
+                    bmi < 18.5 -> tr("sport.bmi.underweight") to c.warn
+                    bmi < 25 -> tr("sport.bmi.healthy") to c.green
+                    bmi < 30 -> tr("sport.bmi.overweight") to c.warn
+                    else -> tr("sport.bmi.high") to c.danger
                 }
                 Pill(label, col, col.soft(0.16f))
             }
         }
-        Overline("GOAL")
+        Overline(tr("sport.setup.goal"))
         Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             TSPORT_GOALS.forEachIndexed { i, g ->
                 val on = goal == i
@@ -180,12 +175,14 @@ private fun ColumnScope.SportSetup(
                         .then(pressScale({ onGoal(i) }, 0.99f)).padding(15.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TfText(g, color = c.fg, size = 15f, weight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    TfText(tr("sport.goal.$g"), color = c.fg, size = 15f, weight = FontWeight.Medium, modifier = Modifier.weight(1f))
                     if (on) TfIcon("checkCircle", size = 18, color = c.accent)
                 }
             }
         }
-        Box(Modifier.padding(horizontal = HPAD.dp, vertical = 4.dp)) { PrimaryButton("Continue", onClick = onDone) }
+        Box(Modifier.padding(horizontal = HPAD.dp, vertical = 4.dp)) {
+            TfPrimaryButton(tr("common.continue"), onClick = onDone, modifier = Modifier.fillMaxWidth())
+        }
     }
 }
 
@@ -195,38 +192,62 @@ private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: (
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         TfText(label, color = c.fg, size = 15f, weight = FontWeight.Medium, modifier = Modifier.weight(1f))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StepBtn("x", onMinus, true)  // minus rendered as small bar via icon fallback
+            StepBtn(onMinus, true, tr("sport.action.decrease", label))
             TfText(value, color = c.fg, size = 15f, family = Fonts.mono, modifier = Modifier.widthIn(min = 64.dp), align = androidx.compose.ui.text.style.TextAlign.Center)
-            StepBtn("plus", onPlus, false)
+            StepBtn(onPlus, false, tr("sport.action.increase", label))
         }
     }
 }
 
 @Composable
-private fun StepBtn(icon: String, onClick: () -> Unit, minus: Boolean) {
+private fun StepBtn(onClick: () -> Unit, minus: Boolean, description: String) {
     val c = LocalTf.current
-    Box(Modifier.size(34.dp).clip(CircleShape).background(c.card3).then(pressScale(onClick, 0.9f)), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier.size(34.dp).clip(CircleShape).background(c.card3)
+            .semantics { contentDescription = description }
+            .then(pressScale(onClick, 0.9f)),
+        contentAlignment = Alignment.Center,
+    ) {
         if (minus) Box(Modifier.size(width = 12.dp, height = 2.dp).clip(RoundedCornerShape(1.dp)).background(c.fg2))
         else TfIcon("plus", size = 16, color = c.fg2)
     }
 }
 
 @Composable
-private fun ColumnScope.SportDashboard(weight: Int, goal: Int) {
+private fun ColumnScope.SportDashboard(weight: Int, goal: Int, onEditProfile: () -> Unit) {
     val c = LocalTf.current
     val scope = rememberCoroutineScope()
+    val activity = remember { getKoin().get<ActivityLog>() }
     val createEntry = remember { getKoin().get<CreateTrackerEntryUseCase>() }
-    val activities = remember { mutableStateListOf<SportActivity>().apply { addAll(TSPORT_DEFAULT.activities) } }
-    val week = remember { mutableStateListOf<Int>().apply { addAll(TSPORT_DEFAULT.weekMin) } }
+    val events by activity.events.collectAsState()
+    val projected = remember(events) { projectSportActivities(events) }
+    val todayKey = sportDateKey(0)
+    val activities = remember(projected, todayKey) { projected.filter { it.localDate == todayKey } }
+    val weekOffsets = remember(todayKey) { (-6..0).toList() }
+    val weekKeys = remember(weekOffsets) { weekOffsets.map(::sportDateKey) }
+    val weekDayIds = remember(weekOffsets) {
+        val ids = listOf("sun", "mon", "tue", "wed", "thu", "fri", "sat")
+        weekOffsets.map { offset -> ids[weekdayIndex(deviceDate(offset))] }
+    }
+    val week = remember(projected, weekKeys) {
+        weekKeys.map { key -> projected.filter { it.localDate == key }.sumOf { it.minutes } }
+    }
     var adding by remember { mutableStateOf(false) }
     var pick by remember { mutableStateOf(0) }
     var dur by remember { mutableStateOf(30) }
 
     val kcalGoal = 500; val minGoal = 60
     val kcal = activities.sumOf { it.kcal }
-    val mins = activities.sumOf { it.min }
+    val mins = activities.sumOf { it.minutes }
 
     ScrollBody {
+        Box(Modifier.padding(horizontal = HPAD.dp)) {
+            TfSecondaryButton(
+                tr("sport.profile.edit"),
+                onClick = onEditProfile,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         // dual rings
         InsetCard(pad = 18) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -235,30 +256,32 @@ private fun ColumnScope.SportDashboard(weight: Int, goal: Int) {
                     RingGauge(mins.toFloat() / minGoal, c.green, c.card3, strokeWidth = 8f, size = 88)
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         TfText("$kcal", color = c.fg, size = 22f, weight = FontWeight.Bold, family = Fonts.mono)
-                        TfText("kcal", color = c.fg3, size = 10f)
+                        TfText(tr("sport.unit.kcal"), color = c.fg3, size = 10f)
                     }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         Box(Modifier.size(9.dp).clip(CircleShape).background(c.named("rose")))
-                        TfText("$kcal / $kcalGoal kcal", color = c.fg2, size = 13f, family = Fonts.mono)
+                        TfText(tr("sport.summary.kcal", kcal, kcalGoal), color = c.fg2, size = 13f, family = Fonts.mono)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         Box(Modifier.size(9.dp).clip(CircleShape).background(c.green))
-                        TfText("$mins / $minGoal min", color = c.fg2, size = 13f, family = Fonts.mono)
+                        TfText(tr("sport.summary.minutes", mins, minGoal), color = c.fg2, size = 13f, family = Fonts.mono)
                     }
-                    Pill("${activities.size} sessions · +6 Physical", c.green, c.green.soft(0.16f))
+                    Pill(tr("sport.summary.sessions", activities.size), c.green, c.green.soft(0.16f))
                 }
             }
         }
         // add activity
         if (!adding) {
-            Box(Modifier.padding(horizontal = HPAD.dp)) { PrimaryButton("Add activity") { adding = true } }
+            Box(Modifier.padding(horizontal = HPAD.dp)) {
+                TfPrimaryButton(tr("sport.activity.add"), onClick = { adding = true }, modifier = Modifier.fillMaxWidth())
+            }
         } else {
             val t = TSPORT_TYPES[pick]
             val computed = (t.met * weight * dur / 60f).roundToInt()
             InsetCard {
-                Overline("PICK A SPORT")
+                Overline(tr("sport.activity.pick"))
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     // wrap types in two rows
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -274,7 +297,7 @@ private fun ColumnScope.SportDashboard(weight: Int, goal: Int) {
                                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp),
                                     ) {
                                         TfIcon(sp.icon, size = 19, color = sp.color)
-                                        TfText(sp.name, color = c.fg2, size = 11f)
+                                        TfText(tr("sport.type.${sp.key}"), color = c.fg2, size = 11f)
                                     }
                                 }
                                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
@@ -282,7 +305,7 @@ private fun ColumnScope.SportDashboard(weight: Int, goal: Int) {
                         }
                     }
                 }
-                Overline("DURATION")
+                Overline(tr("sport.activity.duration"))
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     TSPORT_DURATIONS.forEach { d ->
                         val on = dur == d
@@ -290,52 +313,94 @@ private fun ColumnScope.SportDashboard(weight: Int, goal: Int) {
                             Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (on) c.accent.soft(0.18f) else c.card3)
                                 .then(pressScale({ dur = d }, 0.95f)).padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center,
-                        ) { TfText("${d}m", color = if (on) c.accent else c.fg2, size = 12.5f, family = Fonts.mono) }
+                        ) { TfText(tr("sport.unit.minutes_short", d), color = if (on) c.accent else c.fg2, size = 12.5f, family = Fonts.mono) }
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Overline("ESTIMATED")
-                        TfText("$computed kcal", color = c.fg, size = 20f, weight = FontWeight.Bold, family = Fonts.mono)
+                        Overline(tr("sport.activity.estimated"))
+                        TfText(tr("sport.unit.kcal_value", computed), color = c.fg, size = 20f, weight = FontWeight.Bold, family = Fonts.mono)
                     }
                     Box(Modifier.clip(RoundedCornerShape(12.dp)).background(c.accent).then(pressScale({
-                        activities.add(SportActivity("a${activities.size + 1}", t.key, t.name, t.icon, t.color, dur, computed, "now"))
-                        week[6] = week[6] + dur
-                        adding = false
-                        scope.launch { runCatching { createEntry("sport", buildJsonObject { put("type", t.key); put("minutes", dur); put("kcal", computed) }.toString()) } }
+                        val activityId = activityUuidV4()
+                        val saved = activity.record(
+                            "sport",
+                            "sport_activity_logged",
+                            buildJsonObject {
+                                put("type", t.key)
+                                put("minutes", dur)
+                                put("kcal", computed)
+                            },
+                            entityId = activityId,
+                        )
+                        if (saved) {
+                            adding = false
+                            scope.launch {
+                                runCatching {
+                                    createEntry(
+                                        "sport",
+                                        buildJsonObject {
+                                            put("type", t.key)
+                                            put("minutes", dur)
+                                            put("kcal", computed)
+                                        }.toString(),
+                                    )
+                                }
+                            }
+                        }
                     }, 0.96f)).padding(horizontal = 18.dp, vertical = 12.dp)) {
-                        TfText("Log", color = Color.White, size = 14.5f, weight = FontWeight.SemiBold)
+                        TfText(tr("sport.activity.log"), color = Color.White, size = 14.5f, weight = FontWeight.SemiBold)
                     }
                 }
             }
         }
         // logged today
-        if (activities.isEmpty()) EmptyNote("No sessions yet today. Even a short walk counts.")
+        if (activities.isEmpty()) EmptyNote(tr("sport.activity.empty"))
         else {
-            SectionTitle("Logged today")
+            SectionTitle(tr("sport.activity.logged_today"))
             Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 activities.forEach { a ->
+                    val activityLabel = tr("sport.type.${a.type.key}")
+                    val removeDescription = tr("sport.activity.remove_a11y", activityLabel)
                     Card(Modifier.fillMaxWidth(), pad = 13) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            IconBadge(a.icon, a.color, size = 40)
+                            IconBadge(a.type.icon, a.type.color, size = 40)
                             Column(Modifier.weight(1f)) {
-                                TfText(a.name, color = c.fg, size = 14.5f, weight = FontWeight.SemiBold)
-                                TfText("${a.min} min · ${a.kcal} kcal · ${a.time}", color = c.fg3, size = 12f, family = Fonts.mono)
+                                TfText(activityLabel, color = c.fg, size = 14.5f, weight = FontWeight.SemiBold)
+                                TfText(
+                                    tr("sport.activity.meta", a.minutes, a.kcal),
+                                    color = c.fg3, size = 12f, family = Fonts.mono,
+                                )
                             }
-                            Box(Modifier.then(pressScale({ activities.remove(a) }, 0.9f)).padding(4.dp)) { TfIcon("x", size = 16, color = c.fg3) }
+                            Box(Modifier.semantics {
+                                contentDescription = removeDescription
+                            }.then(pressScale({
+                                activity.record(
+                                    "sport",
+                                    "sport_activity_removed",
+                                    buildJsonObject { put("type", a.type.key) },
+                                    entityId = a.id,
+                                )
+                            }, 0.9f)).padding(4.dp)) { TfIcon("x", size = 16, color = c.fg3) }
                         }
                     }
                 }
             }
         }
         // weekly bars
-        Overline("ACTIVE MINUTES · THIS WEEK", color = c.fg3)
+        Overline(tr("sport.week.overline"), color = c.fg3)
         InsetCard {
             MiniBars(week.map { it.toFloat() }, c.green, c.card3, modifier = Modifier.fillMaxWidth().height(72.dp))
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                listOf("M", "T", "W", "T", "F", "S", "S").forEach { TfText(it, color = c.fg3, size = 10f, family = Fonts.mono) }
+                weekDayIds.forEach {
+                    TfText(tr("weekday.short.$it"), color = c.fg3, size = 10f, family = Fonts.mono)
+                }
             }
         }
-        ProactiveCard("That's $mins active minutes today — over halfway to your goal. Strength sessions are lifting your Physical balance the most.", modifier = Modifier.padding(horizontal = HPAD.dp))
+        ProactiveCard(
+            if (mins == 0) tr("sport.insight.empty")
+            else tr("sport.insight.today", mins, tr("sport.goal.${TSPORT_GOALS[goal.coerceIn(TSPORT_GOALS.indices)]}")),
+            modifier = Modifier.padding(horizontal = HPAD.dp),
+        )
     }
 }

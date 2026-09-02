@@ -71,6 +71,16 @@ class BalanceTest {
     }
 
     @Test
+    fun recorded_sleep_and_finance_actions_make_their_axes_real() {
+        val scores = computeBalance(
+            BalanceInput(physicalActivitiesToday = 1, financialActivitiesToday = 2),
+        )
+
+        assertTrue(scoreOf(scores, "physical").value!! > 0f)
+        assertTrue(scoreOf(scores, "financial").value!! > scoreOf(scores, "physical").value!!)
+    }
+
+    @Test
     fun no_axis_can_exceed_one_however_much_is_recorded() {
         val scores = computeBalance(
             BalanceInput(

@@ -79,28 +79,28 @@ private fun SlideBody(slide: Slide) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             TfText(
-                slide.overline, color = accent, size = 10.5f,
+                tr(slide.overlineKey), color = accent, size = 10.5f,
                 weight = FontWeight.SemiBold, family = Fonts.mono, letterSpacing = 1f,
             )
             TfText(
-                slide.title, color = c.fg, size = slide.titleSize,
+                tr(slide.titleKey), color = c.fg, size = slide.titleSize,
                 weight = if (slide.serifTitle) FontWeight.Normal else FontWeight.Bold,
                 family = if (slide.serifTitle) Fonts.serif else Fonts.display,
                 align = TextAlign.Center, lineHeight = 1.1f,
             )
             TfText(
-                slide.body, color = c.fg2, size = 15f, lineHeight = 1.55f,
+                tr(slide.bodyKey), color = c.fg2, size = 15f, lineHeight = 1.55f,
                 align = TextAlign.Center, modifier = Modifier.padding(horizontal = 4.dp),
             )
-            if (slide.chips.isNotEmpty()) {
+            if (slide.chipKeys.isNotEmpty()) {
                 Column(
                     Modifier.padding(top = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    slide.chips.chunked(2).forEach { row ->
+                    slide.chipKeys.chunked(2).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { PillChip(it, accent) }
+                            row.forEach { PillChip(tr(it), accent) }
                         }
                     }
                 }
@@ -136,11 +136,11 @@ private fun SlideArtView(slide: Slide, accent: Color) {
 
         SlideArt.PRAYER -> {
             val prayers = listOf(
-                PrayerTime("Bomdod", "05:12", 312, c.gold),
-                PrayerTime("Peshin", "12:51", 771, c.gold),
-                PrayerTime("Asr", "17:34", 1054, c.gold),
-                PrayerTime("Shom", "20:08", 1208, c.gold),
-                PrayerTime("Xufton", "21:28", 1288, c.gold),
+                PrayerTime(tr("onb.prayer.fajr"), "05:12", 312, c.gold),
+                PrayerTime(tr("onb.prayer.dhuhr"), "12:51", 771, c.gold),
+                PrayerTime(tr("onb.prayer.asr"), "17:34", 1054, c.gold),
+                PrayerTime(tr("onb.prayer.maghrib"), "20:08", 1208, c.gold),
+                PrayerTime(tr("onb.prayer.isha"), "21:28", 1288, c.gold),
             )
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Box(contentAlignment = Alignment.Center) {
@@ -148,7 +148,8 @@ private fun SlideArtView(slide: Slide, accent: Color) {
                     PrayerDayRing(
                         prayers = prayers,
                         fajrMin = 312, maghribMin = 1208, nowMin = 581,
-                        nextName = "Peshin", countdown = "3h 10m",
+                        nextName = tr("onb.prayer.dhuhr"),
+                        countdown = tr("onb.prayer.demo_countdown", 3, 10),
                         accent = accent, size = 200,
                     )
                 }

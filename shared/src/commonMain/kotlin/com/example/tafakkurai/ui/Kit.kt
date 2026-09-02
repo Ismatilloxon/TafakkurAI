@@ -21,6 +21,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.tafakkurai.i18n.tr
 
 // ── Text ─────────────────────────────────────────────────────────────────────
 @Composable
@@ -135,15 +139,17 @@ fun Overline(text: String, color: Color? = null, modifier: Modifier = Modifier) 
 @Composable
 fun ProgressBar(value: Float, color: Color, height: Int = 5, modifier: Modifier = Modifier, track: Color? = null) {
     val c = LocalTf.current
+    val boundedValue = value.coerceIn(0f, 1f)
     Box(
         modifier
+            .semantics { progressBarRangeInfo = ProgressBarRangeInfo(boundedValue, 0f..1f) }
             .height(height.dp)
             .clip(RoundedCornerShape(height.dp))
             .background(track ?: Color(120 / 255f, 130 / 255f, 150 / 255f, 0.22f))
     ) {
         Box(
             Modifier
-                .fillMaxWidth(value.coerceIn(0f, 1f))
+                .fillMaxWidth(boundedValue)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(height.dp))
                 .background(color)
@@ -293,7 +299,7 @@ fun BackBar(title: String, onBack: () -> Unit, right: @Composable (() -> Unit)? 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TfIcon("chevronLeft", size = 20, color = c.accent)
-            TfText("Back", color = c.accent, size = 16f)
+            TfText(tr("common.back"), color = c.accent, size = 16f)
         }
         TfText(title, color = c.fg, size = 16f, weight = FontWeight.SemiBold)
         Box(Modifier.widthIn(min = 64.dp), contentAlignment = Alignment.CenterEnd) { right?.invoke() }

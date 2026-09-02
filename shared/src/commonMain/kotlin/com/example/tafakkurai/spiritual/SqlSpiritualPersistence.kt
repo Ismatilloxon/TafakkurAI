@@ -25,6 +25,31 @@ class SqlQuranPersistence(private val db: TafakkurDb) : QuranPersistence {
     }
 }
 
+/** Production transaction boundary shared by Qurʼan source rows, preferences, and activity. */
+class SqlQuranWriteTransaction(private val db: TafakkurDb) : QuranWriteTransaction {
+    private val scope = object : QuranWriteScope {
+        override fun markRead(surah: Int, ayah: Int, at: Long) {
+            db.quranReadQueries.markRead(surah.toLong(), ayah.toLong(), at)
+        }
+
+        override fun unmarkRead(surah: Int, ayah: Int) {
+            db.quranReadQueries.unmarkRead(surah.toLong(), ayah.toLong())
+        }
+
+        override fun putPreference(key: String, value: String) {
+            db.appPrefQueries.put(key, value)
+        }
+
+        override fun removePreference(key: String) {
+            db.appPrefQueries.remove(key)
+        }
+    }
+
+    override fun commit(block: QuranWriteScope.() -> Unit): Boolean = runCatching {
+        db.transaction { scope.block() }
+    }.isSuccess
+}
+
 class SqlPrefPersistence(private val db: TafakkurDb) : PrefPersistence {
     private val q get() = db.appPrefQueries
 
@@ -34,6 +59,10 @@ class SqlPrefPersistence(private val db: TafakkurDb) : PrefPersistence {
 
     override fun put(key: String, value: String) {
         runCatching { q.put(key, value) }
+    }
+
+    override fun remove(key: String) {
+        runCatching { q.remove(key) }
     }
 }
 
@@ -53,6 +82,23 @@ class SqlDhikrPersistence(private val db: TafakkurDb) : DhikrPersistence {
     }.getOrDefault(emptyList())
 }
 
+/** Production transaction boundary shared by a tasbih count, its preferences and activity. */
+class SqlDhikrWriteTransaction(private val db: TafakkurDb) : DhikrWriteTransaction {
+    private val scope = object : DhikrWriteScope {
+        override fun putCount(dateKey: String, dhikrId: String, total: Int) {
+            db.dhikrCountQueries.put(dateKey, dhikrId, total.toLong())
+        }
+
+        override fun putPreference(key: String, value: String) {
+            db.appPrefQueries.put(key, value)
+        }
+    }
+
+    override fun commit(block: DhikrWriteScope.() -> Unit): Boolean = runCatching {
+        db.transaction { scope.block() }
+    }.isSuccess
+}
+
 class SqlAdhkarPersistence(private val db: TafakkurDb) : AdhkarPersistence {
     private val q get() = db.adhkarMarkQueries
 
@@ -69,4 +115,21 @@ class SqlAdhkarPersistence(private val db: TafakkurDb) : AdhkarPersistence {
     override fun unmark(dateKey: String, category: String, itemId: String) {
         runCatching { q.unmark(dateKey, category, itemId) }
     }
+}
+
+/** Production transaction boundary shared by one adhkar mark and its activity. */
+class SqlAdhkarWriteTransaction(private val db: TafakkurDb) : AdhkarWriteTransaction {
+    private val scope = object : AdhkarWriteScope {
+        override fun mark(dateKey: String, category: String, itemId: String) {
+            db.adhkarMarkQueries.mark(dateKey, category, itemId)
+        }
+
+        override fun unmark(dateKey: String, category: String, itemId: String) {
+            db.adhkarMarkQueries.unmark(dateKey, category, itemId)
+        }
+    }
+
+    override fun commit(block: AdhkarWriteScope.() -> Unit): Boolean = runCatching {
+        db.transaction { scope.block() }
+    }.isSuccess
 }

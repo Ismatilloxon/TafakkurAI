@@ -1,0 +1,6 @@
+-- Existing device-local photos predate durable upload state. Treat them as pending:
+-- some were selected while the backend or object storage was unavailable, and silently
+-- declaring them uploaded would permanently strand those photos on one device.
+ALTER TABLE profilePhoto ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE profilePhoto ADD COLUMN uploadedRevision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE profilePhoto ADD COLUMN remoteUrl TEXT;

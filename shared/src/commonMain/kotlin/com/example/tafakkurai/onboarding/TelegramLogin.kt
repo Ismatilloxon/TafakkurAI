@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.tafakkurai.i18n.tr
 import com.example.tafakkurai.rememberUrlOpener
 import com.example.tafakkurai.ui.*
 import kotlinx.coroutines.launch
@@ -89,25 +92,25 @@ fun TelegramLoginScreen(
         }
         Spacer(Modifier.height(18.dp))
         TfText(
-            "Telegram orqali kirish",
+            tr("login.telegram"),
             color = c.fg, size = 29f, family = Fonts.serif, align = TextAlign.Center, lineHeight = 1.1f,
         )
         Spacer(Modifier.height(10.dp))
         TfText(
-            "Botni oching → Start → raqamingizni ulashing. Bot sizga $codeLength xonali kod yuboradi.",
+            tr("telegram.instructions", codeLength),
             color = c.fg2, size = 14f, lineHeight = 1.55f, align = TextAlign.Center,
             modifier = Modifier.widthIn(max = 300.dp),
         )
         Spacer(Modifier.height(20.dp))
 
         TelegramButton(
-            label = if (bot == null) "Tayyorlanmoqda…" else "Telegramni ochish",
+            label = if (bot == null) tr("telegram.preparing") else tr("telegram.open"),
             enabled = bot != null,
             onClick = { bot?.let { openUrl(it.deepLink) } },
         )
 
         Spacer(Modifier.height(20.dp))
-        TfText("Botdan kelgan kodni kiriting", color = c.fg3, size = 12.5f)
+        TfText(tr("telegram.enter_code"), color = c.fg3, size = 12.5f)
         Spacer(Modifier.height(10.dp))
 
         CodeField(
@@ -131,24 +134,24 @@ fun TelegramLoginScreen(
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 Spinner(c.fg2)
-                TfText("Tekshirilmoqda…", color = c.fg2, size = 13.5f)
+                TfText(tr("telegram.checking"), color = c.fg2, size = 13.5f)
             }
 
             wrong -> TfText(
-                "Kod notoʻgʻri yoki muddati oʻtgan. Botda /start ni qayta bosing.",
+                tr("telegram.invalid_code"),
                 color = c.danger, size = 13f, lineHeight = 1.5f, align = TextAlign.Center,
                 modifier = Modifier.widthIn(max = 300.dp),
             )
 
             bot != null -> TfText(
-                "Bot: @${bot!!.botUsername}",
+                tr("telegram.bot", "@${bot!!.botUsername}"),
                 color = c.fg3, size = 12.5f,
             )
         }
 
         Spacer(Modifier.height(24.dp))
         TfText(
-            "Orqaga",
+            tr("common.back"),
             color = c.fg3, size = 14f,
             modifier = Modifier.then(pressScale(onBack, 0.97f)).padding(8.dp),
         )
@@ -172,10 +175,12 @@ private fun CodeField(
     onDone: () -> Unit,
 ) {
     val c = LocalTf.current
+    val description = tr("telegram.code_field_a11y", length)
     BasicTextField(
         value = value,
         onValueChange = { raw -> onChange(raw.filter { it.isDigit() }.take(length)) },
         enabled = enabled,
+        modifier = Modifier.semantics { contentDescription = description },
         singleLine = true,
         textStyle = TextStyle(color = Color.Transparent, fontSize = 1.sp),
         cursorBrush = SolidColor(Color.Transparent),

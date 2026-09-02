@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.DisposableEffect
 import com.example.tafakkurai.PrayerTime
+import com.example.tafakkurai.i18n.tr
 import com.example.tafakkurai.ui.AmbientGlow
 import com.example.tafakkurai.ui.Fonts
 import com.example.tafakkurai.ui.LocalTf
@@ -187,7 +188,10 @@ fun SalahProgressHero(
     val prayerRepository = remember { getKoin().get<LocationPrayerScheduleRepository>() }
     // The current prayer's mark, from the shared store — tapping cycles it and persists.
     val markStore = remember { getKoin().get<PrayerMarkStore>() }
-    val mark = markStore.stateOf(ui.currentKey)
+    val hasSchedule = ui.currentKey.isNotBlank() && ui.nextKey.isNotBlank()
+    val mark = if (hasSchedule) markStore.stateOf(ui.currentKey) else PrayerMark.NONE
+    val nextPrayer = if (hasSchedule) localizedPrayerName(ui.nextKey) else ""
+    val countdown = if (hasSchedule) localizedPrayerCountdown(ui.minutesToNext) else ""
 
     // Bumped on resume so the ring jumps to the fresh fraction instead of sweeping to catch up.
     var snapEpoch by remember { mutableStateOf(0) }
@@ -221,12 +225,17 @@ fun SalahProgressHero(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                Overline("NEXT · ${ui.nextName.uppercase()}")
-                TfText(
-                    ui.nextAt, color = c.fg, size = 38f, weight = FontWeight.Bold,
-                    family = Fonts.mono, letterSpacing = 1f,
-                )
-                Pill("in ${ui.countdown}", c.accent, c.accent.soft(0.16f))
+                if (!hasSchedule) {
+                    Overline(tr("prayer.hero.location_needed"))
+                    TfText("--:--", color = c.fg, size = 38f, weight = FontWeight.Bold, family = Fonts.mono)
+                    Pill(tr("prayer.location.required_short"), c.accent, c.accent.soft(0.16f))
+                } else {
+                    Overline(tr("prayer.hero.next", nextPrayer.uppercase()))
+                    TfText(
+                        ui.nextAt, color = c.fg, size = 38f, weight = FontWeight.Bold,
+                        family = Fonts.mono, letterSpacing = 1f,
+                    )
+                    Pill(tr("prayer.hero.in", countdown), c.accent, c.accent.soft(0.16f))
 
                 // Tap cycles: Complete prayer → Completed (on time) → Jamaat → Complete prayer.
                 val btnColor = if (mark == PrayerMark.NONE) c.gold else c.green
@@ -236,9 +245,9 @@ fun SalahProgressHero(
                     PrayerMark.JAMAAT -> "users"
                 }
                 val btnLabel = when (mark) {
-                    PrayerMark.NONE -> "Complete prayer"
-                    PrayerMark.ONTIME -> "Completed"
-                    PrayerMark.JAMAAT -> "Jamaat"
+                    PrayerMark.NONE -> tr("prayer.action.complete")
+                    PrayerMark.ONTIME -> tr("prayer.state.ontime")
+                    PrayerMark.JAMAAT -> tr("prayer.state.jamaat")
                 }
                 Box(
                     Modifier
@@ -263,6 +272,7 @@ fun SalahProgressHero(
                         TfIcon(btnIcon, size = 14, color = btnColor)
                         TfText(btnLabel, color = btnColor, size = 13f, weight = FontWeight.SemiBold)
                     }
+                }
                 }
             }
         }

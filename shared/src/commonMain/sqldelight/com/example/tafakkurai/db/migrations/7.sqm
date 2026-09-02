@@ -1,0 +1,48 @@
+-- v7 → v8: the Sleep & Rest module.
+--
+-- Mirrors SleepSession.sq and SleepRoutineMark.sq exactly, so an upgrading install ends up
+-- with the schema a fresh install gets from Schema.create(). IF NOT EXISTS guards the dev
+-- case where a fresh install already created these.
+--
+-- No data migration is needed: these tables are new. Existing installs get them empty, and
+-- the sleep module's first HealthKit / Health Connect pass backfills history from the
+-- platform health store rather than from anything this app previously held.
+--
+-- SYNC: nothing to register. SyncEngine.attach() rediscovers the table list on the next
+-- launch, finds these two, installs triggers and backfills any rows that predate the
+-- triggers (SyncSchema.backfill). Adding a feature really is just adding its tables.
+
+CREATE TABLE IF NOT EXISTS sleepSession (
+    id            TEXT NOT NULL PRIMARY KEY,
+    serverId      TEXT,
+    kind          TEXT NOT NULL,
+    source        TEXT NOT NULL,
+    externalId    TEXT,
+    startMs       INTEGER NOT NULL,
+    endMs         INTEGER NOT NULL,
+    inBedStartMs  INTEGER NOT NULL,
+    inBedEndMs    INTEGER NOT NULL,
+    segments      TEXT NOT NULL DEFAULT '[]',
+    vitals        TEXT NOT NULL DEFAULT '{}',
+    dateKey       TEXT NOT NULL,
+    moodOnWaking  TEXT,
+    note          TEXT,
+    tags          TEXT NOT NULL DEFAULT '[]',
+    createdAt     INTEGER NOT NULL,
+    updatedAt     INTEGER NOT NULL,
+    deleted       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS sleepSession_date ON sleepSession(deleted, dateKey);
+CREATE INDEX IF NOT EXISTS sleepSession_kind ON sleepSession(deleted, kind, dateKey);
+CREATE INDEX IF NOT EXISTS sleepSession_external ON sleepSession(externalId);
+
+CREATE TABLE IF NOT EXISTS sleepRoutineMark (
+    id          TEXT NOT NULL PRIMARY KEY,
+    stepId      TEXT NOT NULL,
+    phase       TEXT NOT NULL,
+    dateKey     TEXT NOT NULL,
+    completedAt INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS sleepRoutineMark_date ON sleepRoutineMark(dateKey, phase);

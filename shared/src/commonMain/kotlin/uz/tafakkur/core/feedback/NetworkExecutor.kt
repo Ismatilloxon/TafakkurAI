@@ -32,8 +32,8 @@ suspend fun <T> silently(block: suspend CoroutineScope.() -> T): T =
  * Responsibilities, in order:
  *  1. Reference-count the global loader for the whole call — including body parsing, so the
  *     loader reflects real work and concurrent calls keep it up until the last returns.
- *  2. On success, optionally post a success snackbar (only for meaningful mutations).
- *  3. On failure, map → log → (unless silent) show the error snackbar, then rethrow a typed
+ *  3. On success, optionally post a success snackbar (only for meaningful mutations).
+ *  4. On failure, map → log → (unless silent) show the error snackbar, then rethrow a typed
  *     [AppException] so callers still know the operation failed.
  *
  * [CancellationException] is always rethrown untouched — a cancelled coroutine is not an

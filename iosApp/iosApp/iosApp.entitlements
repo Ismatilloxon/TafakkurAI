@@ -26,5 +26,9 @@
 	<array>
 		<string>Default</string>
 	</array>
+
+	<!-- Read-only sleep import. The app does not write health records. -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
 </dict>
 </plist>

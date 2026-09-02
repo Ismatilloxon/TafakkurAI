@@ -1,0 +1,44 @@
+-- One completed routine step on one day.
+--
+-- The primary key is the composite "dateKey|stepId" flattened into a single TEXT column
+-- rather than a two-column PRIMARY KEY. Both work with the sync engine — it joins composite
+-- keys with char(31) — but a single column keeps the entityId in the outbox human-readable
+-- when reading a queue during an incident, and keeps the upsert a one-liner.
+--
+-- Rows are only ever written for COMPLETED steps. There is no "incomplete" row, so skipping
+-- the routine costs no writes and no sync traffic, and the absence of a row is the answer.
+CREATE TABLE sleepRoutineMark (
+    id          TEXT NOT NULL PRIMARY KEY,  -- "yyyy-MM-dd|step.id"
+    stepId      TEXT NOT NULL,
+    phase       TEXT NOT NULL,              -- bedtime | morning
+    dateKey     TEXT NOT NULL,
+    completedAt INTEGER NOT NULL
+);
+
+CREATE INDEX sleepRoutineMark_date ON sleepRoutineMark(dateKey, phase);
+
+complete:
+INSERT OR REPLACE INTO sleepRoutineMark (id, stepId, phase, dateKey, completedAt)
+VALUES (?, ?, ?, ?, ?);
+
+-- Undo. A real delete rather than a tombstone: the sync engine's delete trigger carries it,
+-- and an un-ticked checkbox has no history worth preserving.
+uncomplete:
+DELETE FROM sleepRoutineMark WHERE id = ?;
+
+selectByDate:
+SELECT * FROM sleepRoutineMark WHERE dateKey = ?;
+
+selectByDateAndPhase:
+SELECT * FROM sleepRoutineMark WHERE dateKey = ? AND phase = ?;
+
+selectBetween:
+SELECT * FROM sleepRoutineMark WHERE dateKey BETWEEN ? AND ? ORDER BY dateKey;
+
+-- Days on which a whole phase was finished — the routine streak on the dashboard.
+completedDays:
+SELECT dateKey, count(*) AS total FROM sleepRoutineMark
+WHERE phase = ? GROUP BY dateKey ORDER BY dateKey;
+
+clearDate:
+DELETE FROM sleepRoutineMark WHERE dateKey = ?;

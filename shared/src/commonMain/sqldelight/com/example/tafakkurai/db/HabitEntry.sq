@@ -1,0 +1,70 @@
+-- One habit on one day.
+--
+-- The primary key is the derived string "<habitId>:<dateKey>", and that single decision is
+-- what makes completion idempotent from the tap all the way to Postgres:
+--
+--   * locally, tapping twice lands on the same row rather than creating two;
+--   * in the outbox, the dedupe key collapses a burst of taps into one pending event;
+--   * on the server, entity_id is that same string, so a replayed batch upserts in place.
+--
+-- A random per-write id would have needed a uniqueness rule at every one of those layers,
+-- and would have got it wrong at at least one of them.
+--
+-- There is no "missed" status. A miss is the ABSENCE of a row, which is why undoing a
+-- completion deletes rather than writing a fourth state — otherwise "never tried" and
+-- "tried and undone" would be indistinguishable, and every streak calculation would have
+-- to know the difference.
+CREATE TABLE habitEntry (
+    id          TEXT NOT NULL PRIMARY KEY,      -- "<habitId>:<yyyy-MM-dd>"
+    habitId     TEXT NOT NULL,
+    dateKey     TEXT NOT NULL,                  -- the user's LOCAL day
+    status      TEXT NOT NULL,                  -- done | skipped | partial
+    value       INTEGER NOT NULL DEFAULT 0,     -- progress toward the goal
+    target      INTEGER NOT NULL DEFAULT 1,     -- the goal as it stood that day
+    skipReason  TEXT NOT NULL DEFAULT '',
+    completedAt INTEGER NOT NULL DEFAULT 0,     -- epoch millis, 0 unless done
+    createdAt   INTEGER NOT NULL,
+    updatedAt   INTEGER NOT NULL
+);
+
+-- The two shapes every read takes: "what is today" and "this habit's history".
+CREATE INDEX habitEntry_date ON habitEntry(dateKey);
+CREATE INDEX habitEntry_habit ON habitEntry(habitId, dateKey);
+
+upsert:
+INSERT OR REPLACE INTO habitEntry (
+    id, habitId, dateKey, status, value, target, skipReason, completedAt, createdAt, updatedAt
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Undo. A real DELETE, not a tombstone: the sync engine's delete trigger carries it, and
+-- an un-ticked checkbox has no history worth preserving.
+remove:
+DELETE FROM habitEntry WHERE id = ?;
+
+removeForHabit:
+DELETE FROM habitEntry WHERE habitId = ?;
+
+selectAll:
+SELECT * FROM habitEntry ORDER BY dateKey;
+
+selectById:
+SELECT * FROM habitEntry WHERE id = ?;
+
+selectByDate:
+SELECT * FROM habitEntry WHERE dateKey = ?;
+
+selectBetween:
+SELECT * FROM habitEntry WHERE dateKey BETWEEN ? AND ? ORDER BY dateKey;
+
+selectForHabit:
+SELECT * FROM habitEntry WHERE habitId = ? ORDER BY dateKey;
+
+selectForHabitBetween:
+SELECT * FROM habitEntry WHERE habitId = ? AND dateKey BETWEEN ? AND ? ORDER BY dateKey;
+
+-- Days on which anything at all was completed — the account-level streak.
+activeDays:
+SELECT DISTINCT dateKey FROM habitEntry WHERE status = 'done' ORDER BY dateKey;
+
+countDone:
+SELECT count(*) FROM habitEntry WHERE status = 'done';

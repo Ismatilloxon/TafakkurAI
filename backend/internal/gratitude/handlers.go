@@ -83,7 +83,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	// Best-effort side effects: XP and the generic tracker mirror. Neither may fail
 	// the write the user actually asked for.
 	if h.gamify != nil {
-		_, _ = h.gamify.Award(r.Context(), uid, gamify.EventTrackerEntry)
+		_, _ = h.gamify.AwardOnce(r.Context(), uid, gamify.AwardCommand{
+			Event:          gamify.EventTrackerEntry,
+			IdempotencyKey: "gratitude:" + e.ID.String(),
+			LocalDate:      e.EntryDate,
+		})
 	}
 	h.mirrorToTracker(r, uid, e)
 
@@ -377,7 +381,11 @@ func (h *Handler) completeDay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.gamify != nil {
-		_, _ = h.gamify.Award(r.Context(), uid, gamify.EventTrackerEntry)
+		_, _ = h.gamify.AwardOnce(r.Context(), uid, gamify.AwardCommand{
+			Event:          gamify.EventTrackerEntry,
+			IdempotencyKey: "gratitude-challenge:" + chi.URLParam(r, "id") + ":" + strconv.Itoa(in.Day),
+			LocalDate:      time.Now().UTC(),
+		})
 	}
 	h.challenges(w, r)
 }

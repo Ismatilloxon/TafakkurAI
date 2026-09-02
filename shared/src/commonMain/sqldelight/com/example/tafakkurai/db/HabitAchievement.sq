@@ -1,0 +1,28 @@
+-- Unlock state for one badge. The catalogue itself is code (HabitAchievements.kt and
+-- backend/internal/habits/achievements.go) — it is content every user shares, and a new
+-- badge ships with the release whose copy describes it. Only what THIS user has earned
+-- is data, and it lives here so it syncs like anything else.
+--
+-- `unlockedAt = 0` means still locked. Both numeric columns are why the server's sync
+-- policy for this entity is 'max': an out-of-order replay from a device that had not yet
+-- earned the badge can then never lock it again or walk its progress backwards. Re-locking
+-- a badge somebody earned is the single most demoralising bug this screen can have.
+CREATE TABLE habitAchievement (
+    id         TEXT NOT NULL PRIMARY KEY,
+    unlockedAt INTEGER NOT NULL DEFAULT 0,  -- epoch millis, 0 = locked
+    progress   REAL NOT NULL DEFAULT 0.0,   -- 0..1
+    updatedAt  INTEGER NOT NULL
+);
+
+upsert:
+INSERT OR REPLACE INTO habitAchievement (id, unlockedAt, progress, updatedAt)
+VALUES (?, ?, ?, ?);
+
+selectAll:
+SELECT * FROM habitAchievement;
+
+selectById:
+SELECT * FROM habitAchievement WHERE id = ?;
+
+countUnlocked:
+SELECT count(*) FROM habitAchievement WHERE unlockedAt > 0;

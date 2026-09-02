@@ -19,6 +19,7 @@ data class PrayerProgressUiState(
     val nextName: String = "",
     val nextAt: String = "",
     val countdown: String = "",
+    val minutesToNext: Int = 0,
 )
 
 /**
@@ -53,7 +54,9 @@ class PrayerProgressViewModel(
 
     private fun compute(): PrayerProgressUiState {
         val nowMinute = now() / 60f
-        val p = PrayerProgressCalculator.progressAt(service.timeline(), nowMinute)
+        val timeline = service.timeline()
+        if (timeline.size < 2) return PrayerProgressUiState()
+        val p = PrayerProgressCalculator.progressAt(timeline, nowMinute)
         return PrayerProgressUiState(
             fraction = p.fraction,
             currentKey = p.current.key,     // the prayer whose interval we're in — the one you'd complete
@@ -62,6 +65,7 @@ class PrayerProgressViewModel(
             nextName = p.next.name,
             nextAt = formatClock(p.next.absoluteMinute),
             countdown = formatCountdown(p.minutesToNext),
+            minutesToNext = p.minutesToNext.roundToInt(),
         )
     }
 

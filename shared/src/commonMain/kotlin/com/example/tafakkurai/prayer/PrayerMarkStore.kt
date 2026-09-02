@@ -3,14 +3,9 @@ package com.example.tafakkurai.prayer
 import androidx.compose.runtime.mutableStateMapOf
 import com.example.tafakkurai.db.TafakkurDb
 import com.example.tafakkurai.flashcards.epochMillis
-import com.example.tafakkurai.sync.Outbox
-import com.example.tafakkurai.sync.syncJson
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-
-/** Outbox payload for a prayer-mark change — enough for the backend to upsert the completion. */
-@Serializable
-data class PrayerMarkSyncPayload(val prayer: String, val date: String, val state: String)
+import com.example.tafakkurai.sync.ActivityLog
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * The state a salah can be in for a given day. [id] matches the existing `PRAYER_STATES`
@@ -44,12 +39,14 @@ fun deviceDateKey(): String {
  * Today card, the prayer tracker — recomposes the instant any one of them changes it.
  *
  * A single Koin instance is shared app-wide, which is what makes the three surfaces agree.
+ * Each tap commits the mark row and its immutable activity in one transaction; observable
+ * state is changed only after that transaction succeeds.
  */
 class PrayerMarkStore(
     private val db: TafakkurDb,
-    private val outbox: Outbox? = null,
     private val todayKey: () -> String = ::deviceDateKey,
     private val now: () -> Long = ::epochMillis,
+    private val activity: ActivityLog? = null,
 ) {
     private val q get() = db.prayerMarkQueries
 
@@ -80,23 +77,37 @@ class PrayerMarkStore(
 
     /** Advance a prayer through the cycle and write through to the DB. No-op for blanks. */
     fun cycle(prayer: String) {
-        if (prayer.isBlank()) return
-        if (todayKey() != loadedFor) refresh()
+        val prayerKey = prayer.trim().lowercase()
+        if (prayerKey.isBlank()) return
         val key = todayKey()
-        val next = stateOf(prayer).next()
-        if (next == PrayerMark.NONE) {
-            marks.remove(prayer)
-            runCatching { q.deleteMark(key, prayer) }
-        } else {
-            marks[prayer] = next
-            runCatching { q.upsert(key, prayer, next.id, now()) }
-        }
-        // Local write is the source of truth; queue the change so the next app-enter syncs
-        // it to the backend. Fire-and-forget — the outbox owns retry/ordering, not this call.
-        outbox?.enqueue(
-            entity = "prayerMark",
-            op = next.id,
-            payload = syncJson.encodeToString(PrayerMarkSyncPayload(prayer, key, next.id)),
-        )
+        if (key != loadedFor) refresh()
+        val next = stateOf(prayerKey).next()
+        val stamp = now()
+        val eventState = if (next == PrayerMark.NONE) "none" else next.id
+        val persisted = runCatching {
+            db.transaction {
+                if (next == PrayerMark.NONE) {
+                    q.deleteMark(key, prayerKey)
+                } else {
+                    q.upsert(key, prayerKey, next.id, stamp)
+                }
+                check(
+                    activity?.record(
+                        feature = "prayer",
+                        type = "prayer_mark_changed",
+                        properties = buildJsonObject {
+                            put("date", key)
+                            put("prayer", prayerKey)
+                            put("state", eventState)
+                        },
+                        entityId = "prayer:$key:$prayerKey",
+                        occurredAtOverride = stamp,
+                        localDateOverride = key,
+                    ) ?: true,
+                ) { "Could not append prayer ActivityEvent" }
+            }
+        }.isSuccess
+        if (!persisted) return
+        if (next == PrayerMark.NONE) marks.remove(prayerKey) else marks[prayerKey] = next
     }
 }

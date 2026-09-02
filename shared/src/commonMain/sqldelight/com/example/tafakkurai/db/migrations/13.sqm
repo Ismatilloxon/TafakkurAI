@@ -1,0 +1,8 @@
+ALTER TABLE hifzReview ADD COLUMN localDate TEXT NOT NULL DEFAULT '';
+ALTER TABLE hifzReview ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';
+
+-- Historical rows did not capture their civil date. UTC is the only honest recoverable
+-- interpretation; every new row records the device-local date and timezone explicitly.
+UPDATE hifzReview
+SET localDate = strftime('%Y-%m-%d', reviewedAt / 1000, 'unixepoch')
+WHERE localDate = '';

@@ -1,11 +1,11 @@
 // Package sync is the generic event-sync platform: one batch endpoint and one
 // delta endpoint that serve every feature in the app, present and future.
 //
-// The defining property of this package is that it contains NO feature names.
-// There is no switch on "prayer" or "dhikr", no per-feature DTO and no per-feature
-// table. A feature is just a `(feature, entity)` string pair the client chose, and
-// the payload is opaque jsonb. That is what makes "add a feature without touching
-// the backend" true rather than aspirational.
+// Mutable feature state stays open: there is no switch on "prayer" or "dhikr", no
+// per-feature DTO and no per-feature table. A feature is just a `(feature, entity)`
+// string pair the client chose, and its payload is opaque jsonb. The deliberate
+// exception is activityEvent, the app-wide immutable integration contract whose stable
+// envelope is validated before it can affect history or progression.
 //
 // The one switch this package does contain is over *conflict strategies*, which is
 // a closed set of five that describes how any two versions of a row merge. Adding a
@@ -13,9 +13,14 @@
 package sync
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
+	stdsync "sync"
 	"time"
+	_ "time/tzdata" // Distroless runtime has no guaranteed host timezone database.
 
 	"github.com/google/uuid"
 )
@@ -83,17 +88,26 @@ func (o Operation) valid() bool {
 // stops one pathological row (a base64 image pasted into a note) from making a batch
 // unparseable for everything queued behind it.
 const (
-	MaxBatchEvents  = 100
-	MaxPayloadBytes = 64 * 1024
-	MaxIDLen        = 512
-	MaxNameLen      = 64
-	DefaultPullSize = 500
-	MaxPullSize     = 1000
+	MaxBatchEvents   = 100
+	MaxPayloadBytes  = 64 * 1024
+	MaxMetadataBytes = 4 * 1024
+	MaxIDLen         = 512
+	MaxNameLen       = 64
+	MaxTimezoneLen   = 64
+	DefaultPullSize  = 500
+	MaxPullSize      = 1000
+
+	// ActivityEventEntity is the one append-only fact carried by the otherwise
+	// state-oriented sync contract. Its payload has a versioned, validated envelope.
+	ActivityEventEntity  = "activityEvent"
+	MaxActivityTypeLen   = 64
+	MaxActivitySourceLen = 32
 )
 
 var (
 	ErrBatchTooLarge = errors.New("too many events in one batch")
 	ErrEmptyBatch    = errors.New("batch contains no events")
+	timezoneCache    stdsync.Map
 )
 
 // Event is one local mutation, as the client recorded it. Identical shape for every
@@ -160,13 +174,204 @@ func (e *Event) validate() error {
 		return errors.New("operation must be insert, update or delete")
 	case len(e.Payload) > MaxPayloadBytes:
 		return errors.New("payload exceeds 64KB")
+	case len(e.Metadata) > MaxMetadataBytes:
+		return errors.New("metadata exceeds 4KB")
 	case e.DeviceTime <= 0:
 		return errors.New("deviceTime must be epoch millis")
+	case e.Timezone == "" || len(e.Timezone) > MaxTimezoneLen:
+		return errors.New("timezone must be a 1..64 character IANA timezone id")
+	}
+	if _, err := loadLocation(e.Timezone); err != nil {
+		return errors.New("timezone must be a valid IANA timezone id")
+	}
+	if err := validateJSONObject(e.Payload, e.Operation == OpDelete, "payload"); err != nil {
+		return err
+	}
+	if err := validateJSONObject(e.Metadata, true, "metadata"); err != nil {
+		return err
+	}
+	if e.Entity == ActivityEventEntity {
+		return e.validateActivityEvent()
 	}
 	// A device clock running far ahead would pin the row at last-write-wins forever
 	// and no later change could ever displace it. Clamp rather than reject: the user
 	// did do the thing, their clock is just wrong.
 	return nil
+}
+
+// activityEnvelope is deliberately only the stable envelope. Everything else in the
+// JSON object is a feature-owned typed property and remains opaque to this package.
+type activityEnvelope struct {
+	Type          string `json:"type"`
+	OccurredAt    int64  `json:"at"`
+	EntityID      string `json:"entityId"`
+	LocalDate     string `json:"localDate"`
+	Timezone      string `json:"timezone"`
+	Source        string `json:"source"`
+	SchemaVersion int    `json:"schemaVersion"`
+}
+
+// validateActivityEvent protects the immutable product fact before it reaches either
+// the idempotency ledger or any projection. The outer sync fields and inner envelope
+// intentionally repeat identity/time information; requiring them to agree prevents one
+// event from producing different history, streak and delta-feed interpretations.
+func (e *Event) validateActivityEvent() error {
+	if e.Operation != OpInsert {
+		return errors.New("activityEvent is append-only and must use insert")
+	}
+	if e.EntityID != e.ID {
+		return errors.New("activityEvent entityId must equal event id")
+	}
+	if err := e.normalizeLegacyActivityEvent(); err != nil {
+		return err
+	}
+	if len(e.Payload) > MaxPayloadBytes {
+		return errors.New("normalized activityEvent payload exceeds 64KB")
+	}
+
+	var activity activityEnvelope
+	if err := json.Unmarshal(e.Payload, &activity); err != nil {
+		return errors.New("activityEvent payload is invalid")
+	}
+	switch {
+	case strings.TrimSpace(activity.Type) != activity.Type || activity.Type == "" || len(activity.Type) > MaxActivityTypeLen:
+		return errors.New("activityEvent type must be 1..64 trimmed characters")
+	case activity.OccurredAt <= 0:
+		return errors.New("activityEvent at must be epoch millis")
+	case activity.OccurredAt != e.DeviceTime:
+		return errors.New("activityEvent at must equal deviceTime")
+	case strings.TrimSpace(activity.EntityID) != activity.EntityID || activity.EntityID == "" || len(activity.EntityID) > MaxIDLen:
+		return errors.New("activityEvent source entityId must be 1..512 trimmed characters")
+	case activity.Timezone != e.Timezone:
+		return errors.New("activityEvent timezone must equal event timezone")
+	case strings.TrimSpace(activity.Source) != activity.Source || activity.Source == "" || len(activity.Source) > MaxActivitySourceLen:
+		return errors.New("activityEvent source must be 1..32 trimmed characters")
+	case activity.SchemaVersion <= 0:
+		return errors.New("activityEvent schemaVersion must be positive")
+	}
+
+	localDate, err := time.Parse(time.DateOnly, activity.LocalDate)
+	if err != nil || localDate.Format(time.DateOnly) != activity.LocalDate {
+		return errors.New("activityEvent localDate must be a valid yyyy-mm-dd date")
+	}
+	// localDate is the product's civil-day attribution, not necessarily the wall-clock
+	// day of OccurredAt. A compensation made today can legitimately target yesterday's
+	// sleep or prayer row; requiring derivation from the instant would reject that fact.
+	return nil
+}
+
+// normalizeLegacyActivityEvent is a wire-compatibility bridge for events already queued
+// by the pre-envelope client. Those payloads carried only type/at plus properties. The
+// authenticated owner and outer sync contract let the server complete the immutable v1
+// envelope before storing it, so peers never receive an untyped historical row. Once a
+// schemaVersion is present, no repair is attempted: malformed versioned data is rejected.
+func (e *Event) normalizeLegacyActivityEvent() error {
+	fields := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(e.Payload, &fields); err != nil {
+		return errors.New("activityEvent payload is invalid")
+	}
+	if _, versioned := fields["schemaVersion"]; versioned {
+		return nil
+	}
+
+	var activityType string
+	if raw, ok := fields["type"]; !ok || json.Unmarshal(raw, &activityType) != nil || strings.TrimSpace(activityType) == "" {
+		return errors.New("legacy activityEvent type is required")
+	}
+	location, err := loadLocation(e.Timezone)
+	if err != nil {
+		return errors.New("activityEvent timezone must be a valid IANA timezone id")
+	}
+	local := time.UnixMilli(e.DeviceTime).In(location)
+	localDate := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+
+	putJSON := func(name string, value any) error {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		fields[name] = encoded
+		return nil
+	}
+	for name, value := range map[string]any{
+		"at":            e.DeviceTime,
+		"entityId":      e.EntityID,
+		"localDate":     localDate,
+		"timezone":      e.Timezone,
+		"source":        "legacy",
+		"schemaVersion": 1,
+	} {
+		if err := putJSON(name, value); err != nil {
+			return fmt.Errorf("normalize legacy activityEvent: %w", err)
+		}
+	}
+	normalized, err := json.Marshal(fields)
+	if err != nil {
+		return fmt.Errorf("normalize legacy activityEvent payload: %w", err)
+	}
+	e.Payload = normalized
+	return nil
+}
+
+func validateJSONObject(raw json.RawMessage, optional bool, name string) error {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		if optional {
+			return nil
+		}
+		return fmt.Errorf("%s must be a JSON object", name)
+	}
+	if !json.Valid(raw) || trimmed[0] != '{' {
+		return fmt.Errorf("%s must be a JSON object", name)
+	}
+	return nil
+}
+
+// fingerprint is the semantic identity stored beside an idempotency key. JSON is
+// decoded and re-encoded first so harmless whitespace or object-key ordering changes
+// are still a replay, while changing any projected field becomes a rejected collision.
+// Metadata is transport-only and intentionally does not change source semantics.
+func (e *Event) fingerprint() (string, error) {
+	var payload any
+	decoder := json.NewDecoder(strings.NewReader(e.payloadOrEmpty()))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
+		return "", err
+	}
+	canonicalPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	document := struct {
+		Feature    string          `json:"feature"`
+		Entity     string          `json:"entity"`
+		EntityID   string          `json:"entityId"`
+		Operation  Operation       `json:"operation"`
+		Payload    json.RawMessage `json:"payload"`
+		DeviceTime int64           `json:"deviceTime"`
+		Timezone   string          `json:"timezone"`
+	}{
+		Feature: e.Feature, Entity: e.Entity, EntityID: e.EntityID,
+		Operation: e.Operation, Payload: canonicalPayload,
+		DeviceTime: e.DeviceTime, Timezone: e.Timezone,
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(encoded)), nil
+}
+
+func (e *Event) activityLocalDate() (time.Time, bool) {
+	if e.Entity != ActivityEventEntity {
+		return time.Time{}, false
+	}
+	var activity activityEnvelope
+	if err := json.Unmarshal(e.Payload, &activity); err != nil {
+		return time.Time{}, false
+	}
+	date, err := time.Parse(time.DateOnly, activity.LocalDate)
+	return date, err == nil
 }
 
 // deviceTimeUTC converts the device clock to a timestamp, clamping anything more than
@@ -178,6 +383,32 @@ func (e *Event) deviceTimeUTC(now time.Time) time.Time {
 		return now
 	}
 	return t
+}
+
+// localDate returns the civil date on which the action occurred in the timezone
+// recorded with that action. The result uses UTC only as a date-only container;
+// it is not the UTC date of the original instant.
+func (e *Event) localDate(now time.Time) time.Time {
+	location, err := loadLocation(e.Timezone)
+	if err != nil {
+		// validate rejects this before an event reaches the write path. Keeping the
+		// helper total avoids a second error branch inside the transaction loop.
+		location = time.UTC
+	}
+	local := e.deviceTimeUTC(now).In(location)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func loadLocation(name string) (*time.Location, error) {
+	if cached, ok := timezoneCache.Load(name); ok {
+		return cached.(*time.Location), nil
+	}
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, err
+	}
+	actual, _ := timezoneCache.LoadOrStore(name, location)
+	return actual.(*time.Location), nil
 }
 
 // payloadOrEmpty guarantees valid jsonb for the column. A delete carries no payload.

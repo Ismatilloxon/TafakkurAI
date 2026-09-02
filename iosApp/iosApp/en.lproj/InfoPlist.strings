@@ -3,3 +3,5 @@
 "NSLocationWhenInUseUsageDescription" = "TafakkurAI uses your location to calculate accurate prayer times for where you are.";
 "NSLocationAlwaysAndWhenInUseUsageDescription" = "TafakkurAI uses your location to calculate accurate prayer times for where you are.";
 "NSPhotoLibraryUsageDescription" = "TafakkurAI needs access to your photos so you can set a profile picture.";
+"NSLocalNetworkUsageDescription" = "TafakkurAI connects to the development server on your local network.";
+"NSHealthShareUsageDescription" = "TafakkurAI reads your sleep stages and duration to show recovery and sleep trends.";

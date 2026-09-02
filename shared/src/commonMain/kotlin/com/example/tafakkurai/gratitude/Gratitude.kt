@@ -103,11 +103,17 @@ val GRAT_CHALLENGES = listOf(
 )
 
 data class GratChallengeProgress(val challenge: GratChallenge, val joined: Boolean, val doneDays: Set<Int>) {
-    val done: Int get() = doneDays.size
+    private val validDoneDays: Set<Int> get() = doneDays.filterTo(mutableSetOf()) { it in 1..challenge.total }
+    val done: Int get() = validDoneDays.size
     val fraction: Float get() = if (challenge.total == 0) 0f else done.toFloat() / challenge.total
     /** 1-based index of the day the user is on now, capped at the journey length. */
-    val currentDay: Int get() = (1..challenge.total).firstOrNull { it !in doneDays } ?: challenge.total
+    val currentDay: Int get() = (1..challenge.total).firstOrNull { it !in validDoneDays } ?: challenge.total
 }
+
+fun gratitudeChallengeOf(id: String): GratChallenge? = GRAT_CHALLENGES.firstOrNull { it.id == id }
+
+fun isValidChallengeDay(challengeId: String, day: Int): Boolean =
+    gratitudeChallengeOf(challengeId)?.let { day in 1..it.total } == true
 
 // ── Entry ────────────────────────────────────────────────────────────────────
 
@@ -136,6 +142,53 @@ data class GratEntry(
     val updatedAt: Long = 0L,
     val serverId: String? = null,
 )
+
+/**
+ * User-authored fields before persistence. Keeping cleanup and vocabulary validation in
+ * the domain makes manual composition, AI-assisted drafts, imports and edits obey the
+ * same rules without depending on a particular screen.
+ */
+data class GratitudeDraft(
+    val mode: GratMode = GratMode.QUICK,
+    val text: String = "",
+    val items: List<String> = emptyList(),
+    val why: String? = null,
+    val category: String? = null,
+    val mood: String? = null,
+    val emotions: List<String> = emptyList(),
+)
+
+/** Returns null when the draft has no user-authored content. */
+fun normalizeGratitudeDraft(draft: GratitudeDraft): GratitudeDraft? {
+    val items = draft.items.asSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .distinct()
+        .take(3)
+        .toList()
+    val text = when (draft.mode) {
+        GratMode.THREE -> items.joinToString(" · ")
+        else -> draft.text.trim()
+    }
+    if (text.isBlank()) return null
+
+    val emotions = draft.emotions.mapNotNull { candidate ->
+        GRAT_EMOTIONS.firstOrNull { it.equals(candidate.trim(), ignoreCase = true) }
+    }.distinct()
+
+    return draft.copy(
+        text = text,
+        items = if (draft.mode == GratMode.THREE) items else emptyList(),
+        why = draft.why?.trim()?.takeIf(String::isNotEmpty),
+        category = categoryOf(draft.category).key,
+        mood = moodOf(draft.mood)?.key,
+        emotions = emotions,
+    )
+}
+
+/** A pulled row may only replace an equal-or-older local version. */
+fun shouldApplyRemoteEntry(local: GratEntry?, remote: GratEntry): Boolean =
+    local == null || remote.updatedAt >= local.updatedAt
 
 // ── Statistics (pure) ────────────────────────────────────────────────────────
 
@@ -173,7 +226,7 @@ fun computeGratStats(activeDays: Collection<String>, total: Int, todayKey: Strin
         streak = streakLength(activeDays, todayKey),
         longest = longest,
         total = total,
-        monthDays = activeDays.count { it.startsWith(monthPrefix) },
+        monthDays = activeDays.distinct().count { it.startsWith(monthPrefix) },
         week = (0..6).map { day -> nums.any { it == today - 6 + day } },
     )
 }
@@ -216,7 +269,12 @@ fun gratReflection(cats: List<GratCategoryShare>, entries: Int): String = when {
 }
 
 /** Free-text + category filter, matching the backend's ILIKE search field for field. */
-fun searchEntries(entries: List<GratEntry>, query: String, category: String?): List<GratEntry> {
+fun searchEntries(
+    entries: List<GratEntry>,
+    query: String,
+    category: String?,
+    categoryLabel: (String) -> String = { categoryOf(it).label },
+): List<GratEntry> {
     val q = query.trim().lowercase()
     return entries.filter { e ->
         val okCategory = category == null || e.category == category
@@ -224,7 +282,7 @@ fun searchEntries(entries: List<GratEntry>, query: String, category: String?): L
             e.text.lowercase().contains(q) ||
             (e.why?.lowercase()?.contains(q) == true) ||
             e.emotions.any { it.lowercase().contains(q) } ||
-            categoryOf(e.category).label.lowercase().contains(q)
+            categoryLabel(e.category).lowercase().contains(q)
         okCategory && okQuery
     }
 }

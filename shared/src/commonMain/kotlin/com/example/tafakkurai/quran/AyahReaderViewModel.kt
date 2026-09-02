@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** One ayah as the reader draws it. */
@@ -100,6 +101,10 @@ class AyahReaderViewModel(
     val state: StateFlow<AyahReaderUiState> = _state.asStateFlow()
 
     init {
+        // Opening the reader is the explicit start of this exact learning scope. It creates
+        // one replay-safe source event, which the integration projector turns into the
+        // connected habit, Today row and quiz goal without this ViewModel knowing those stores.
+        progress.startSurah(surahNumber)
         viewModelScope.launch {
             combine(
                 snapshotFlow { snapshot() },
@@ -151,6 +156,9 @@ class AyahReaderViewModel(
         }
     }
 
+    /** Restores callbacks after another audio screen temporarily owned the shared player. */
+    fun activateAudio() = audio.activate()
+
     override fun onCleared() {
         // The player is an app-wide singleton — stop this surah's playback but leave the
         // player itself alive for the next reader instance.
@@ -179,8 +187,8 @@ class AyahReaderViewModel(
         viewModelScope.launch {
             loading = true
             failure = null
-            runCatching { repository.getAyahs(surahNumber) }
-                .onSuccess { ayahs ->
+            try {
+                val ayahs = repository.getAyahs(surahNumber)
                     loaded = ayahs
                     audio.setQueue(ayahs, progress.reciter)
                     // Downloads a chunk of recitation in the selected qari's voice only,
@@ -195,11 +203,12 @@ class AyahReaderViewModel(
                         audio.prime(surahNumber, resumeAt)
                         if (!keepSelection) selected = resumeAt
                     }
-                }
-                .onFailure {
-                    loaded = emptyList()
-                    failure = "Couldn't load this surah."
-                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                loaded = emptyList()
+                failure = "quran.reader.load_failed"
+            }
             loading = false
             if (!keepSelection) selected = selected ?: progress.lastRead
                 ?.takeIf { it.surahNumber == surahNumber }?.ayahNumber

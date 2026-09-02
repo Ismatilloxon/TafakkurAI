@@ -28,16 +28,22 @@ private class PickerDelegate(
     ) {
         val image = didFinishPickingMediaWithInfo[UIImagePickerControllerOriginalImage] as? UIImage
         val bytes = image
-            ?.let { UIImageJPEGRepresentation(it, 0.9) }
+            ?.let { UIImageJPEGRepresentation(it, 0.82) }
             ?.toByteArray()
-        picker.dismissViewControllerAnimated(true, completion = null)
-        onResult(bytes)
+        picker.dismissViewControllerAnimated(true, completion = { onResult(bytes) })
     }
 
     override fun imagePickerControllerDidCancel(picker: UIImagePickerController) {
-        picker.dismissViewControllerAnimated(true, completion = null)
-        onResult(null)
+        picker.dismissViewControllerAnimated(true, completion = { onResult(null) })
     }
+}
+
+private fun UIViewController.presentationHost(): UIViewController {
+    var host = this
+    while (host.presentedViewController != null) {
+        host = host.presentedViewController ?: break
+    }
+    return host
 }
 
 @Composable
@@ -50,6 +56,6 @@ actual fun rememberImagePicker(onResult: (ByteArray?) -> Unit): () -> Unit {
             UIImagePickerControllerSourceType.UIImagePickerControllerSourceTypePhotoLibrary
         picker.delegate = delegate
         val root = UIApplication.sharedApplication.keyWindow?.rootViewController
-        root?.presentViewController(picker, animated = true, completion = null)
+        root?.presentationHost()?.presentViewController(picker, animated = true, completion = null)
     }
 }

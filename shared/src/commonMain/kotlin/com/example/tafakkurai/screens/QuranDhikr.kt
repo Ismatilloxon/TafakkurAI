@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,18 +23,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tafakkurai.adhkar.AdhkarCategory
 import com.example.tafakkurai.adhkar.AdhkarItem
@@ -44,9 +43,10 @@ import com.example.tafakkurai.adhkar.adhkarFor
 import com.example.tafakkurai.dhikr.DHIKR_CATALOG
 import com.example.tafakkurai.dhikr.DhikrStore
 import com.example.tafakkurai.dhikr.QUICK_TARGETS
+import com.example.tafakkurai.i18n.LocalStrings
+import com.example.tafakkurai.i18n.tr
 import com.example.tafakkurai.quran.hifz.HifzStore
 import com.example.tafakkurai.quran.AyahReaderViewModel
-import com.example.tafakkurai.quran.BASMALA_MEANING
 import com.example.tafakkurai.quran.AyahUiModel
 import com.example.tafakkurai.quran.MushafEdition
 import com.example.tafakkurai.quran.MushafPageViewModel
@@ -63,6 +63,9 @@ import com.example.tafakkurai.quran.TranslationEdition
 import com.example.tafakkurai.quran.showsBasmala
 import com.example.tafakkurai.quran.surahOf
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.ui.components.TfSearchField
+import com.example.tafakkurai.ui.components.TfErrorState
+import com.example.tafakkurai.ui.components.TfLoadingState
 import org.koin.mp.KoinPlatform.getKoin
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,19 +76,27 @@ import org.koin.mp.KoinPlatform.getKoin
 // The only numbers shown are the ones you act on directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
-private val QD_TABS = listOf("quran" to "Qurʼan", "dhikr" to "Dhikr", "adhkar" to "Adhkar")
-
 @Composable
 fun QuranDhikrScreen(
     onBack: () -> Unit,
+    initialTab: String = "quran",
     onOpenSurah: (Int) -> Unit = {},
     onOpenHifz: () -> Unit = {},
+    quizCount: Int = 0,
+    onOpenQuizzes: () -> Unit = {},
 ) {
-    var tab by remember { mutableStateOf("quran") }
+    var tab by remember(initialTab) {
+        mutableStateOf(initialTab.takeIf { it in setOf("quran", "dhikr", "adhkar") } ?: "quran")
+    }
+    val tabs = listOf(
+        "quran" to tr("quran.tab.quran"),
+        "dhikr" to tr("quran.tab.dhikr"),
+        "adhkar" to tr("adhkar.tab"),
+    )
     Column(Modifier.fillMaxSize()) {
-        BackBar("Qurʼan & dhikr", onBack)
+        BackBar(tr("quran.title"), onBack)
         Box(Modifier.padding(horizontal = HPAD.dp, vertical = 10.dp)) {
-            Segmented(QD_TABS, tab, { tab = it })
+            Segmented(tabs, tab, { tab = it })
         }
         Crossfade(
             targetState = tab,
@@ -94,7 +105,7 @@ fun QuranDhikrScreen(
             modifier = Modifier.weight(1f).fillMaxWidth(),
         ) { active ->
             when (active) {
-                "quran" -> QuranTab(onOpenSurah, onOpenHifz)
+                "quran" -> QuranTab(onOpenSurah, onOpenHifz, quizCount, onOpenQuizzes)
                 "dhikr" -> DhikrTab()
                 else -> AdhkarTab()
             }
@@ -105,7 +116,12 @@ fun QuranDhikrScreen(
 // ── Qurʼan tab ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun QuranTab(onOpenSurah: (Int) -> Unit, onOpenHifz: () -> Unit) {
+private fun QuranTab(
+    onOpenSurah: (Int) -> Unit,
+    onOpenHifz: () -> Unit,
+    quizCount: Int,
+    onOpenQuizzes: () -> Unit,
+) {
     val c = LocalTf.current
     val vm: QuranViewModel = viewModel { QuranViewModel(getKoin().get(), getKoin().get()) }
     val state by vm.state.collectAsState()
@@ -114,8 +130,8 @@ private fun QuranTab(onOpenSurah: (Int) -> Unit, onOpenHifz: () -> Unit) {
     LaunchedEffect(Unit) { vm.refresh() }
 
     when {
-        state.isLoading && state.surahs.isEmpty() -> LoadingState("Loading the Qurʼan…")
-        state.error != null -> ErrorState(state.error!!) { vm.onEvent(QuranUiEvent.Retry) }
+        state.isLoading && state.surahs.isEmpty() -> LoadingState(tr("quran.loading"))
+        state.error != null -> ErrorState(tr(state.error!!)) { vm.onEvent(QuranUiEvent.Retry) }
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 116.dp),
@@ -124,15 +140,17 @@ private fun QuranTab(onOpenSurah: (Int) -> Unit, onOpenHifz: () -> Unit) {
             item(key = "continue") { ContinueReadingCard(state, onOpenSurah) }
             item(key = "overall") { OverallProgressCard(state) }
             item(key = "hifz") { HifzEntryCard(onOpenHifz) }
+            item(key = "quizzes") { QuranQuizEntryCard(quizCount, onOpenQuizzes) }
             item(key = "search") { SurahSearchField(state.query) { vm.onEvent(QuranUiEvent.Search(it)) } }
             item(key = "heading") {
                 SectionTitle(
-                    if (state.query.isBlank()) "114 Surahs" else "${state.surahs.size} matching",
+                    if (state.query.isBlank()) tr("quran.surahs_count", 114)
+                    else tr("quran.matches_count", state.surahs.size),
                 )
             }
             if (state.surahs.isEmpty()) {
                 item(key = "no-match") {
-                    EmptyState("No surah matches “${state.query}”.")
+                    EmptyState(tr("quran.no_matches", state.query))
                 }
             }
             items(state.surahs, key = { it.surah.number }) { row ->
@@ -144,6 +162,28 @@ private fun QuranTab(onOpenSurah: (Int) -> Unit, onOpenHifz: () -> Unit) {
     }
 }
 
+/** Exact-surah reviews appear only after reading or Hifz creates a real learning scope. */
+@Composable
+private fun QuranQuizEntryCard(count: Int, onOpen: () -> Unit) {
+    val c = LocalTf.current
+    val detail = when (count) {
+        0 -> tr("quran.quiz.entry.empty")
+        1 -> tr("quran.quiz.entry.one")
+        else -> tr("quran.quiz.entry.many", count)
+    }
+    Card(Modifier.fillMaxWidth().padding(horizontal = HPAD.dp), onClick = onOpen) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+            IconBadge("graduationCap", c.purple, size = 46, iconSize = 22)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TfText(tr("quran.quiz.entry.title"), color = c.fg, size = 16f, weight = FontWeight.SemiBold)
+                TfText(detail, color = c.fg2, size = 12.5f, lineHeight = 1.4f)
+            }
+            if (count > 0) Pill(count.toString(), c.purple, c.purple.soft(0.16f))
+            TfIcon("chevronRight", size = 18, color = c.fg3)
+        }
+    }
+}
+
 @Composable
 private fun ContinueReadingCard(state: QuranUiState, onOpenSurah: (Int) -> Unit) {
     val c = LocalTf.current
@@ -151,24 +191,25 @@ private fun ContinueReadingCard(state: QuranUiState, onOpenSurah: (Int) -> Unit)
     if (last == null) {
         // Nothing read yet — offer a real starting point rather than an empty card.
         InsetCard(onClick = { onOpenSurah(1) }) {
-            Overline("START READING")
+            Overline(tr("quran.start.overline"))
             TfText(
-                "Begin with Al-Fatihah",
+                tr("quran.start.title"),
                 color = c.fg, size = 18f, weight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 4.dp),
             )
             TfText(
-                "Tap any ayah to hear it and mark your place.",
+                tr("quran.start.hint"),
                 color = c.fg2, size = 12.5f, lineHeight = 1.5f, modifier = Modifier.padding(top = 2.dp),
             )
         }
         return
     }
     val surah = surahOf(last.surahNumber)
+    val continueA11y = tr("quran.continue.a11y", last.surahName)
     InsetCard(onClick = { onOpenSurah(last.surahNumber) }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
-                Overline("CONTINUE READING")
+                Overline(tr("quran.continue.overline"))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -178,7 +219,8 @@ private fun ContinueReadingCard(state: QuranUiState, onOpenSurah: (Int) -> Unit)
                     if (surah != null) TfText(surah.nameArabic, color = c.gold, size = 18f, family = Fonts.serif)
                 }
                 TfText(
-                    "Ayah ${last.ayahNumber}${surah?.let { " of ${it.ayahCount}" } ?: ""}",
+                    if (surah == null) tr("quran.continue.ayah_position", last.ayahNumber)
+                    else tr("quran.continue.ayah_progress", last.ayahNumber, surah.ayahCount),
                     color = c.fg2, size = 12.5f, modifier = Modifier.padding(top = 2.dp),
                 )
                 if (surah != null) {
@@ -191,7 +233,7 @@ private fun ContinueReadingCard(state: QuranUiState, onOpenSurah: (Int) -> Unit)
             }
             Box(
                 Modifier.size(46.dp).clip(CircleShape).background(c.gold)
-                    .semantics { contentDescription = "Continue reading ${last.surahName}" },
+                    .semantics { contentDescription = continueA11y },
                 contentAlignment = Alignment.Center,
             ) { TfIcon("play", size = 20, color = Color.White) }
         }
@@ -205,7 +247,7 @@ private fun OverallProgressCard(state: QuranUiState) {
     InsetCard(pad = 18) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Overline("OVERALL READ")
+                Overline(tr("quran.overall.overline"))
                 TfText(
                     "${state.overallPercent}%",
                     color = c.fg, size = 34f, weight = FontWeight.Bold, family = Fonts.mono,
@@ -214,11 +256,11 @@ private fun OverallProgressCard(state: QuranUiState) {
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 TfText(
-                    "${state.ayahsRead} / ${state.totalAyahs} ayahs",
+                    tr("quran.overall.ayahs", state.ayahsRead, state.totalAyahs),
                     color = c.fg2, size = 12.5f, family = Fonts.mono,
                 )
                 TfText(
-                    "${state.completedSurahs} of 114 surahs complete",
+                    tr("quran.overall.surahs_complete", state.completedSurahs, 114),
                     color = c.fg3, size = 11.5f,
                 )
             }
@@ -245,12 +287,13 @@ private fun HifzEntryCard(onOpen: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
             IconBadge("brain", c.gold, size = 46, iconSize = 22)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                TfText("Hifz · Yodlash", color = c.fg, size = 16f, weight = FontWeight.SemiBold)
+                TfText(tr("quran.hifz.title"), color = c.fg, size = 16f, weight = FontWeight.SemiBold)
                 TfText(
                     when {
-                        !stats.hasCards -> "Memorize a surah, an ayah at a time."
-                        stats.due > 0 -> "${stats.due} ${if (stats.due == 1) "ayah" else "ayahs"} to review today"
-                        else -> "${stats.memorized} of ${stats.total} memorized · nothing due"
+                        !stats.hasCards -> tr("quran.hifz.empty")
+                        stats.due == 1 -> tr("quran.hifz.due_one")
+                        stats.due > 1 -> tr("quran.hifz.due_many", stats.due)
+                        else -> tr("quran.hifz.resting", stats.memorized, stats.total)
                     },
                     color = c.fg2, size = 12.5f,
                 )
@@ -263,32 +306,14 @@ private fun HifzEntryCard(onOpen: () -> Unit) {
 
 @Composable
 private fun SurahSearchField(query: String, onQuery: (String) -> Unit) {
-    val c = LocalTf.current
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = HPAD.dp)
-            .clip(RoundedCornerShape(12.dp)).background(c.card3)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
-    ) {
-        TfIcon("search", size = 16, color = c.fg3)
-        Box(Modifier.weight(1f)) {
-            if (query.isEmpty()) TfText("Search surah, meaning or number…", color = c.fg3, size = 14f)
-            BasicTextField(
-                value = query,
-                onValueChange = onQuery,
-                singleLine = true,
-                textStyle = TextStyle(color = c.fg, fontSize = 14.sp, fontFamily = Fonts.sans),
-                cursorBrush = SolidColor(c.accent),
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search surahs" },
-            )
-        }
-        if (query.isNotEmpty()) {
-            Box(Modifier.then(pressScale({ onQuery("") }, 0.9f)).padding(2.dp)) {
-                TfIcon("x", size = 15, color = c.fg3)
-            }
-        }
-    }
+    TfSearchField(
+        query = query,
+        onQuery = onQuery,
+        placeholder = tr("quran.search.hint"),
+        searchContentDescription = tr("quran.search.a11y"),
+        clearContentDescription = tr("quran.search.clear_a11y"),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
+    )
 }
 
 @Composable
@@ -310,11 +335,15 @@ private fun SurahRow(row: SurahUiModel, onClick: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     TfText(s.nameEnglish, color = c.fg, size = 15f, weight = FontWeight.SemiBold)
-                    if (row.isLastRead) Pill("last read", c.accent, c.accent.soft(0.16f))
+                    if (row.isLastRead) Pill(tr("quran.surah.last_read"), c.accent, c.accent.soft(0.16f))
                 }
                 TfText(s.nameArabic, color = c.gold, size = 15f, family = Fonts.serif, modifier = Modifier.padding(top = 1.dp))
                 TfText(
-                    "${s.nameTranslation} · ${s.ayahCount} ayahs · ${if (s.revelationType.name == "MECCAN") "Meccan" else "Medinan"}",
+                    tr(
+                        "quran.surah.meta",
+                        s.ayahCount,
+                        tr(if (s.revelationType.name == "MECCAN") "quran.surah.meccan" else "quran.surah.medinan"),
+                    ),
                     color = c.fg3, size = 11.5f, modifier = Modifier.padding(top = 2.dp),
                 )
             }
@@ -336,9 +365,13 @@ private fun SurahRow(row: SurahUiModel, onClick: () -> Unit) {
 // ── Ayah reader ──────────────────────────────────────────────────────────────
 
 @Composable
-fun AyahReaderScreen(surahNumber: Int, onBack: () -> Unit) {
+fun AyahReaderScreen(surahNumber: Int, sessionKey: Int, onBack: () -> Unit) {
     val c = LocalTf.current
-    val vm: AyahReaderViewModel = viewModel(key = "reader-$surahNumber") {
+    // A locale-derived translation is intentionally not persisted until the user chooses
+    // one. Re-keying the reader after an interface-language change reloads the ayah meanings
+    // in that new derived edition; an explicit Qurʼan edition still resolves unchanged.
+    val appLanguageCode = LocalStrings.current.language.code
+    val vm: AyahReaderViewModel = viewModel(key = "reader-$sessionKey-$surahNumber-$appLanguageCode") {
         AyahReaderViewModel(
             surahNumber, getKoin().get(), getKoin().get(), getKoin().get(), getKoin().get(),
         )
@@ -346,6 +379,11 @@ fun AyahReaderScreen(surahNumber: Int, onBack: () -> Unit) {
     val state by vm.state.collectAsState()
     val listState = rememberLazyListState()
     var reciterSheet by remember { mutableStateOf(false) }
+    val readerSettingsA11y = tr("quran.reader.settings_a11y")
+    DisposableEffect(vm) {
+        vm.activateAudio()
+        onDispose { }
+    }
 
     // Keep the ayah being recited pinned to the top of the list as playback advances.
     val playingAyah = state.audio.track
@@ -360,7 +398,7 @@ fun AyahReaderScreen(surahNumber: Int, onBack: () -> Unit) {
     val surah = state.surah
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            BackBar(surah?.nameEnglish ?: "Surah $surahNumber", onBack) {
+            BackBar(surah?.nameEnglish ?: tr("quran.reader.surah_title", surahNumber), onBack) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -370,17 +408,20 @@ fun AyahReaderScreen(surahNumber: Int, onBack: () -> Unit) {
                     }
                     Box(
                         Modifier.then(pressScale({ reciterSheet = true }, 0.9f)).padding(6.dp)
-                            .semantics { contentDescription = "Reader settings" },
+                            .semantics { contentDescription = readerSettingsA11y },
                     ) { TfIcon("sliders", size = 19, color = c.accent) }
                 }
             }
             when {
-                state.isLoading && state.ayahs.isEmpty() -> LoadingState("Loading ${surah?.nameEnglish ?: "surah"}…")
-                state.error != null -> ErrorState(state.error!!) { vm.onEvent(ReaderUiEvent.Retry) }
+                state.isLoading && state.ayahs.isEmpty() -> LoadingState(
+                    tr("quran.reader.loading", surah?.nameEnglish ?: tr("quran.reader.surah_generic")),
+                )
+                state.error != null -> ErrorState(tr(state.error!!)) { vm.onEvent(ReaderUiEvent.Retry) }
                 // Meaning off: nothing needs to sit beside the Arabic, so the surah is
                 // drawn as the mushaf prints it rather than as a list of rows.
                 !state.showTranslation -> MushafPane(
                     surahNumber = surahNumber,
+                    sessionKey = sessionKey,
                     playingAyah = playingAyah,
                     selectedAyah = state.ayahs.firstOrNull { it.isSelected }?.ayah?.number,
                     mushaf = state.mushaf,
@@ -419,10 +460,7 @@ fun AyahReaderScreen(surahNumber: Int, onBack: () -> Unit) {
                     }
                     if (state.isTextUnavailable) {
                         item(key = "no-text") {
-                            EmptyState(
-                                "This surah's text hasn't been downloaded yet. Connect to the internet and pull " +
-                                    "up again — recitation audio still works offline once cached.",
-                            )
+                            EmptyState(tr("quran.reader.text_unavailable"))
                         }
                     }
                     items(state.ayahs, key = { it.ayah.number }) { row ->
@@ -479,13 +517,14 @@ fun AyahReaderScreen(surahNumber: Int, onBack: () -> Unit) {
 @Composable
 private fun MushafPane(
     surahNumber: Int,
+    sessionKey: Int,
     playingAyah: Int?,
     selectedAyah: Int?,
     mushaf: MushafEdition,
     onTapAyah: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val vm: MushafPageViewModel = viewModel(key = "mushaf-$surahNumber") {
+    val vm: MushafPageViewModel = viewModel(key = "mushaf-$sessionKey-$surahNumber") {
         MushafPageViewModel(surahNumber, getKoin().get())
     }
     val state by vm.state.collectAsState()
@@ -513,12 +552,13 @@ private fun MushafPane(
 @Composable
 private fun TranslationToggle(on: Boolean, onToggle: () -> Unit) {
     val c = LocalTf.current
+    val action = tr(if (on) "quran.reader.hide_translation_a11y" else "quran.reader.show_translation_a11y")
     // Lit accent when the meaning is on, dimmed when the read is Arabic-only. Same bare-icon
     // treatment as the qari button beside it, so the bar reads as one row of controls.
     val fg by animateColorAsState(if (on) c.accent else c.fg3, tween(200), label = "translation-toggle")
     Box(
         Modifier.then(pressScale(onToggle, 0.9f)).padding(6.dp)
-            .semantics { contentDescription = if (on) "Hide translation" else "Show translation" },
+            .semantics { contentDescription = action },
     ) { TfIcon("languages", size = 19, color = fg) }
 }
 
@@ -543,10 +583,20 @@ private fun SurahHeader(
                 TfText(surah.nameArabic, color = c.gold, size = 36f, family = Fonts.serif)
                 TfText(surah.nameEnglish, color = c.fg, size = 19f, weight = FontWeight.SemiBold, family = Fonts.display)
                 TfText(
-                    "${surah.nameTranslation} · ${surah.ayahCount} ayahs",
+                    tr(
+                        "quran.reader.surah_meta",
+                        surah.ayahCount,
+                        tr(
+                            if (surah.revelationType.name == "MECCAN") {
+                                "quran.surah.meccan"
+                            } else {
+                                "quran.surah.medinan"
+                            },
+                        ),
+                    ),
                     color = c.fg3, size = 12.5f,
                 )
-                Pill("$readCount read", c.green, c.green.soft(0.16f))
+                Pill(tr("quran.reader.read_count", readCount), c.green, c.green.soft(0.16f))
                 ProgressBar(progress, c.green, height = 4, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
                 if (showsBasmala(surahNumber)) BasmalaLine(showTranslation, mushaf)
             }
@@ -572,11 +622,11 @@ private fun DownloadCard(state: PrefetchState) {
             ) { TfIcon("download", size = 15, color = c.accent) }
             Column(Modifier.weight(1f)) {
                 TfText(
-                    "Downloading ayahs ${state.firstAyah}–${state.lastAyah}",
+                    tr("quran.reader.download_title", state.firstAyah, state.lastAyah),
                     color = c.fg, size = 13.5f, weight = FontWeight.Medium,
                 )
                 TfText(
-                    "${state.completed} of ${state.total} · plays offline once done",
+                    tr("quran.reader.download_status", state.completed, state.total),
                     color = c.fg3, size = 11.5f, modifier = Modifier.padding(top = 1.dp),
                 )
             }
@@ -611,7 +661,7 @@ private fun BasmalaLine(showTranslation: Boolean, mushaf: MushafEdition) {
         )
         // Follows the ayah rows: an Arabic-only read leaves no English anywhere on the page.
         if (showTranslation) {
-            TfText(BASMALA_MEANING, color = c.fg3, size = 12f, align = TextAlign.Center)
+            TfText(tr("quran.reader.basmala_meaning"), color = c.fg3, size = 12f, align = TextAlign.Center)
         }
     }
 }
@@ -626,6 +676,7 @@ private fun AyahCard(
 ) {
     val c = LocalTf.current
     val ayah = row.ayah
+    val ayahA11y = tr("quran.reader.ayah_a11y", ayah.number)
     // Selected ayah gets a warm surface; playing adds a border. Subtle, never loud.
     val surface by animateColorAsState(
         if (row.isSelected) c.gold.soft(0.10f) else Color.Transparent,
@@ -641,7 +692,7 @@ private fun AyahCard(
             // Each ayah is its own tap target — the page is never one big button.
             .then(pressScale(onTap, 0.99f))
             .padding(16.dp)
-            .semantics { contentDescription = "Ayah ${ayah.number}. Tap to listen." },
+            .semantics { contentDescription = ayahA11y },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
@@ -657,7 +708,7 @@ private fun AyahCard(
                 TfText(ayah.number.toString(), color = c.fg3, size = 11.5f, family = Fonts.mono)
             }
             Spacer(Modifier.weight(1f))
-            if (row.isPlaying) Pill("playing", c.gold, c.gold.soft(0.16f))
+            if (row.isPlaying) Pill(tr("quran.reader.playing"), c.gold, c.gold.soft(0.16f))
         }
 
         if (ayah.hasText) {
@@ -677,11 +728,11 @@ private fun AyahCard(
             }
         } else {
             TfText(
-                "Text not downloaded",
+                tr("quran.reader.text_not_downloaded"),
                 color = c.fg3, size = 13f, modifier = Modifier.padding(top = 10.dp),
             )
             TfText(
-                "Tap to listen to the recitation of this ayah.",
+                tr("quran.reader.tap_to_listen"),
                 color = c.fg3, size = 12f, modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -702,6 +753,7 @@ private fun AyahPlayerBar(
 ) {
     val c = LocalTf.current
     val track = state.track ?: return
+    val playPauseA11y = tr(if (state.isPlaying) "quran.player.pause" else "quran.player.play")
     Column(
         modifier.fillMaxWidth()
             .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
@@ -718,13 +770,13 @@ private fun AyahPlayerBar(
             Column(Modifier.weight(1f)) {
                 TfText(track.reciterName, color = c.fg, size = 14f, weight = FontWeight.SemiBold, maxLines = 1)
                 TfText(
-                    if (track.isBasmala) "${track.surahName} · Bismillah"
-                    else "${track.surahName} · Ayah ${track.ayahNumber}",
+                    if (track.isBasmala) tr("quran.reader.track_bismillah", track.surahName)
+                    else tr("quran.reader.track_ayah", track.surahName, track.ayahNumber),
                     color = c.fg2, size = 12f, maxLines = 1,
                 )
             }
             if (state.playback == PlaybackState.ERROR) {
-                Pill("unavailable", c.danger, c.danger.soft(0.16f))
+                Pill(tr("quran.reader.unavailable"), c.danger, c.danger.soft(0.16f))
             }
         }
 
@@ -749,11 +801,11 @@ private fun AyahPlayerBar(
 
         if (state.error != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TfText(state.error, color = c.fg3, size = 12f, modifier = Modifier.weight(1f))
+                TfText(tr(state.error), color = c.fg3, size = 12f, modifier = Modifier.weight(1f))
                 Box(
                     Modifier.clip(RoundedCornerShape(999.dp)).border(0.5.dp, c.line, RoundedCornerShape(999.dp))
                         .then(pressScale(onPlayPause, 0.95f)).padding(horizontal = 12.dp, vertical = 6.dp),
-                ) { TfText("Try again", color = c.accent, size = 12.5f, weight = FontWeight.SemiBold) }
+                ) { TfText(tr("common.retry"), color = c.accent, size = 12.5f, weight = FontWeight.SemiBold) }
             }
         } else {
             SeekBar(state.progress, onSeek)
@@ -762,11 +814,11 @@ private fun AyahPlayerBar(
                 horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                PlayerButton("chevronLeft", "Previous ayah", c.fg2, 20, onPrevious)
+                PlayerButton("chevronLeft", tr("quran.player.previous"), c.fg2, 20, onPrevious)
                 Box(
-                    Modifier.size(50.dp).clip(CircleShape).background(c.gold)
-                        .then(pressScale(onPlayPause, 0.92f))
-                        .semantics { contentDescription = if (state.isPlaying) "Pause" else "Play" },
+                        Modifier.size(50.dp).clip(CircleShape).background(c.gold)
+                            .then(pressScale(onPlayPause, 0.92f))
+                            .semantics { contentDescription = playPauseA11y },
                     contentAlignment = Alignment.Center,
                 ) {
                     if (state.isLoading) {
@@ -775,7 +827,7 @@ private fun AyahPlayerBar(
                         TfIcon(if (state.isPlaying) "pause" else "play", size = 22, color = Color.White)
                     }
                 }
-                PlayerButton("chevronRight", "Next ayah", c.fg2, 20, onNext)
+                PlayerButton("chevronRight", tr("quran.player.next"), c.fg2, 20, onNext)
             }
         }
     }
@@ -832,6 +884,7 @@ private fun BoxScope.ReaderSettingsSheet(
     onClose: () -> Unit,
 ) {
     val c = LocalTf.current
+    val closeA11y = tr("common.close")
     val scrim by animateFloatAsState(if (open) 1f else 0f, tween(240), label = "reciter-scrim")
     val slide by animateFloatAsState(if (open) 0f else 1f, tween(300), label = "reciter-slide")
     if (!open && scrim <= 0f) return
@@ -856,15 +909,17 @@ private fun BoxScope.ReaderSettingsSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Overline("READER")
+                    Overline(tr("quran.reader.settings.overline"))
                     TfText(
-                        "Reading settings", color = c.fg, size = 17f,
+                        tr("quran.reader.settings.title"), color = c.fg, size = 17f,
                         weight = FontWeight.SemiBold, family = Fonts.display,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
                 Box(
-                    Modifier.size(30.dp).clip(CircleShape).background(c.card2).then(pressScale(onClose, 0.9f)),
+                    Modifier.size(30.dp).clip(CircleShape).background(c.card2)
+                        .then(pressScale(onClose, 0.9f))
+                        .semantics { contentDescription = closeA11y },
                     contentAlignment = Alignment.Center,
                 ) { TfIcon("x", size = 16, color = c.fg2) }
             }
@@ -873,10 +928,9 @@ private fun BoxScope.ReaderSettingsSheet(
                     .padding(horizontal = HPAD.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Overline("MUSHAF")
+                Overline(tr("quran.reader.settings.mushaf_overline"))
                 TfText(
-                    "Which printed rasm the ayahs are drawn in. The words are identical in " +
-                        "all three — the letters and marks are not.",
+                    tr("quran.reader.settings.mushaf_detail"),
                     color = c.fg2, size = 13f, lineHeight = 1.45f,
                 )
                 mushafs.forEach { mushaf ->
@@ -887,9 +941,12 @@ private fun BoxScope.ReaderSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Column(Modifier.weight(1f)) {
-                                TfText(mushaf.label, color = c.fg, size = 15f, weight = FontWeight.Medium)
                                 TfText(
-                                    mushaf.note, color = c.fg3, size = 12f,
+                                    tr("quran.mushaf.${mushaf.id}.label"),
+                                    color = c.fg, size = 15f, weight = FontWeight.Medium,
+                                )
+                                TfText(
+                                    tr("quran.mushaf.${mushaf.id}.note"), color = c.fg3, size = 12f,
                                     modifier = Modifier.padding(top = 1.dp),
                                 )
                             }
@@ -905,7 +962,7 @@ private fun BoxScope.ReaderSettingsSheet(
                         )
                     }
                 }
-                Overline("QARI", modifier = Modifier.padding(top = 10.dp))
+                Overline(tr("quran.reader.settings.reciter_overline"), modifier = Modifier.padding(top = 10.dp))
                 reciters.forEach { reciter ->
                     val on = reciter.id == selectedId
                     Card(Modifier.fillMaxWidth(), pad = 13, onClick = { onPick(reciter.id) }) {
@@ -939,17 +996,20 @@ private fun BoxScope.ReaderSettingsSheet(
                     Modifier.fillMaxWidth().padding(top = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Overline("TRANSLATION")
+                    Overline(tr("quran.reader.settings.translation_overline"))
                     Segmented(
-                        listOf("on" to "Show meaning", "off" to "Arabic only"),
+                        listOf(
+                            "on" to tr("quran.reader.settings.show_meaning"),
+                            "off" to tr("quran.reader.settings.arabic_only"),
+                        ),
                         if (showTranslation) "on" else "off",
                         { onSetShowTranslation(it == "on") },
                     )
                     TfText(
                         // The edition list stays live while the meaning is hidden — picking one
                         // decides what appears the moment the toggle goes back on.
-                        if (showTranslation) "Meaning shown under each ayah"
-                        else "Ayahs show Arabic alone. Your edition is kept for when you switch back.",
+                        if (showTranslation) tr("quran.reader.settings.meaning_shown")
+                        else tr("quran.reader.settings.arabic_only_detail"),
                         color = c.fg2, size = 13f, lineHeight = 1.45f,
                     )
                     translations.forEach { edition ->
@@ -960,9 +1020,13 @@ private fun BoxScope.ReaderSettingsSheet(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 Column(Modifier.weight(1f)) {
-                                    TfText(edition.label, color = c.fg, size = 14.5f, weight = FontWeight.Medium)
                                     TfText(
-                                        edition.translator, color = c.fg3, size = 12f,
+                                        tr(edition.labelKey),
+                                        color = c.fg, size = 14.5f, weight = FontWeight.Medium,
+                                    )
+                                    TfText(
+                                        tr(edition.translatorKey),
+                                        color = c.fg3, size = 12f,
                                         modifier = Modifier.padding(top = 1.dp),
                                     )
                                 }
@@ -972,12 +1036,7 @@ private fun BoxScope.ReaderSettingsSheet(
                     }
                 }
                 PrivacyFooter(
-                    "Recitation streams from the everyayah.com CDN, the Madani and Turkish " +
-                        "texts and all translations come from alquran.cloud, and the Indo-Pak " +
-                        "text from quran.com. Offline, the reader falls back to its bundled " +
-                        "Uthmani excerpt whichever mushaf is chosen. Uzbek Latin is the " +
-                        "Cyrillic translation transliterated, not a separate translation. " +
-                        "Your reading progress stays on this device.",
+                    tr("quran.reader.settings.privacy"),
                 )
             }
         }
@@ -997,6 +1056,9 @@ private fun DhikrTab() {
     val selected = store.selected
     val count = store.count
     val target = store.target
+    val counterA11y = tr("dhikr.counter.a11y", selected.transliteration, count, target)
+    val incrementA11y = tr("dhikr.counter.increment_a11y")
+    val resetA11y = tr("dhikr.counter.reset_a11y")
     val ring by animateFloatAsState(store.progress, tween(320), label = "dhikr-ring")
     // A small kick on each tap, settling back — enough to feel, not enough to distract.
     val bump by animateFloatAsState(if (store.isTargetReached) 1.04f else 1f, tween(240), label = "dhikr-bump")
@@ -1027,7 +1089,7 @@ private fun DhikrTab() {
                     size = 236,
                     modifier = Modifier.scale(bump)
                         .then(pressScale(::tap, 0.97f))
-                        .semantics { contentDescription = "${selected.transliteration}. $count of $target. Tap to count." },
+                        .semantics { contentDescription = counterA11y },
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1035,14 +1097,18 @@ private fun DhikrTab() {
                     ) {
                         TfText(selected.arabic, color = c.gold, size = 24f, family = Fonts.serif)
                         TfText("$count", color = c.fg, size = 56f, weight = FontWeight.Bold, family = Fonts.mono)
-                        TfText("of $target", color = c.fg3, size = 12.5f, family = Fonts.mono)
+                        TfText(
+                            tr("dhikr.counter.progress", count, target),
+                            color = c.fg3, size = 12.5f, family = Fonts.mono,
+                        )
                     }
                 }
             }
         }
 
         TfText(
-            selected.meaning, color = c.fg2, size = 13.5f, align = TextAlign.Center,
+            tr("dhikr.item.${selected.id}.meaning"),
+            color = c.fg2, size = 13.5f, align = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
         )
 
@@ -1051,13 +1117,13 @@ private fun DhikrTab() {
             Box(
                 Modifier.weight(1f).height(56.dp).clip(RoundedCornerShape(16.dp)).background(c.gold)
                     .then(pressScale(::tap, 0.97f))
-                    .semantics { contentDescription = "Count one" },
+                    .semantics { contentDescription = incrementA11y },
                 contentAlignment = Alignment.Center,
             ) { TfIcon("plus", size = 26, color = Color.White) }
             Box(
                 Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(c.card3)
                     .then(pressScale({ store.reset() }, 0.94f))
-                    .semantics { contentDescription = "Reset counter" },
+                    .semantics { contentDescription = resetA11y },
                 contentAlignment = Alignment.Center,
             ) { TfIcon("repeat", size = 20, color = c.fg2) }
         }
@@ -1084,7 +1150,7 @@ private fun DhikrTab() {
             }
         }
 
-        SectionTitle("Current dhikr")
+        SectionTitle(tr("dhikr.current"))
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = HPAD.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1106,17 +1172,22 @@ private fun DhikrTab() {
             }
         }
 
-        SectionTitle("Favourites")
+        SectionTitle(tr("dhikr.favourites"))
         Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             DHIKR_CATALOG.forEach { dhikr ->
                 val counted = store.countOf(dhikr.id)
                 val favourite = store.isFavourite(dhikr.id)
+                val favouriteA11y = if (favourite) {
+                    tr("dhikr.favourite.remove_a11y", dhikr.transliteration)
+                } else {
+                    tr("dhikr.favourite.add_a11y", dhikr.transliteration)
+                }
                 Card(Modifier.fillMaxWidth(), pad = 14, onClick = { store.select(dhikr.id) }) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
                             TfText(dhikr.arabic, color = c.gold, size = 18f, family = Fonts.serif)
                             TfText(
-                                "${dhikr.transliteration} · ${dhikr.meaning}",
+                                "${dhikr.transliteration} · ${tr("dhikr.item.${dhikr.id}.meaning")}",
                                 color = c.fg2, size = 12f, modifier = Modifier.padding(top = 3.dp),
                             )
                         }
@@ -1127,11 +1198,7 @@ private fun DhikrTab() {
                         Box(
                             Modifier.size(32.dp).clip(CircleShape).background(c.card3)
                                 .then(pressScale({ store.toggleFavourite(dhikr.id) }, 0.9f))
-                                .semantics {
-                                    contentDescription =
-                                        if (favourite) "Remove ${dhikr.transliteration} from favourites"
-                                        else "Add ${dhikr.transliteration} to favourites"
-                                },
+                                .semantics { contentDescription = favouriteA11y },
                             contentAlignment = Alignment.Center,
                         ) { TfIcon("star", size = 15, color = if (favourite) c.gold else c.fg3) }
                     }
@@ -1165,9 +1232,15 @@ private fun AdhkarTab() {
         item(key = "switch") {
             Box(Modifier.padding(horizontal = HPAD.dp)) {
                 Segmented(
-                    AdhkarCategory.entries.map { it.id to it.label },
+                    listOf(
+                        AdhkarCategory.MORNING.id to tr("adhkar.category.morning"),
+                        AdhkarCategory.EVENING.id to tr("adhkar.category.evening"),
+                    ),
                     category.id,
-                    { category = AdhkarCategory.from(it) },
+                    {
+                        category = AdhkarCategory.from(it)
+                        expanded = null
+                    },
                 )
             }
         }
@@ -1175,7 +1248,7 @@ private fun AdhkarTab() {
             InsetCard(pad = 18) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Overline("${category.label.uppercase()} ADHKAR")
+                        Overline(tr("adhkar.progress.${category.id}"))
                         TfText(
                             "$done / $total",
                             color = c.fg, size = 30f, weight = FontWeight.Bold, family = Fonts.mono,
@@ -1196,11 +1269,15 @@ private fun AdhkarTab() {
         }
         item(key = "hint") {
             TfText(
-                if (category == AdhkarCategory.MORNING) "Recited after Fajr until sunrise." else "Recited after Asr until Maghrib.",
+                tr("adhkar.hint.${category.id}"),
                 color = c.fg3, size = 12.5f, modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
-        itemsIndexed(items, key = { _, it -> "${category.id}-${it.id}" }) { index, item ->
+        itemsIndexed(
+            items = items,
+            key = { _, it -> "${category.id}-${it.id}" },
+            contentType = { _, _ -> "adhkar-item" },
+        ) { index, item ->
             Box(Modifier.padding(horizontal = HPAD.dp)) {
                 AdhkarRow(
                     item = item,
@@ -1213,7 +1290,7 @@ private fun AdhkarTab() {
             }
         }
         item(key = "footer") {
-            PrivacyFooter("Reflective and educational — never a ruling. Your completions stay on this device.")
+            PrivacyFooter(tr("adhkar.footer"))
         }
     }
 }
@@ -1228,15 +1305,33 @@ private fun AdhkarRow(
     onToggleExpand: () -> Unit,
 ) {
     val c = LocalTf.current
-    Card(Modifier.fillMaxWidth(), pad = 14, onClick = onToggleExpand) {
+    val title = tr("adhkar.item.${item.id}.title")
+    val transliteration = tr("adhkar.item.${item.id}.transliteration")
+    val meaning = tr("adhkar.item.${item.id}.meaning")
+    val completionAction = tr(
+        if (isDone) "adhkar.action.mark_not_done" else "adhkar.action.mark_done",
+        title,
+    )
+    val completionState = tr(
+        if (isDone) "adhkar.state.completed" else "adhkar.state.not_completed",
+    )
+    val expansionState = tr(
+        if (isExpanded) "adhkar.state.expanded" else "adhkar.state.collapsed",
+    )
+    Card(
+        Modifier.fillMaxWidth().semantics { stateDescription = expansionState },
+        pad = 14,
+        onClick = onToggleExpand,
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(
-                Modifier.size(30.dp).clip(CircleShape)
+                Modifier.size(44.dp).clip(CircleShape)
                     .background(if (isDone) c.green.soft(0.18f) else c.card3)
                     .then(pressScale(onToggleDone, 0.88f))
                     .semantics {
-                        contentDescription =
-                            if (isDone) "Mark ${item.title} not done" else "Mark ${item.title} done"
+                        contentDescription = completionAction
+                        role = Role.Checkbox
+                        stateDescription = completionState
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -1245,7 +1340,7 @@ private fun AdhkarRow(
             }
             Column(Modifier.weight(1f)) {
                 TfText(
-                    item.title,
+                    title,
                     color = if (isDone) c.fg3 else c.fg, size = 14.5f, weight = FontWeight.SemiBold,
                 )
                 TfText(item.reference, color = c.fg3, size = 11.5f, modifier = Modifier.padding(top = 2.dp))
@@ -1254,18 +1349,30 @@ private fun AdhkarRow(
             TfIcon(if (isExpanded) "chevronUp" else "chevronDown", size = 16, color = c.fg3)
         }
         if (isExpanded) {
+            Overline(
+                tr("adhkar.label.arabic"),
+                modifier = Modifier.padding(top = 14.dp),
+            )
             TfText(
                 item.arabic,
                 color = c.fg, size = 20f, family = Fonts.serif, align = TextAlign.End, lineHeight = 1.95f,
-                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            )
+            Overline(
+                tr("adhkar.label.transliteration"),
+                modifier = Modifier.padding(top = 12.dp),
             )
             TfText(
-                item.transliteration,
-                color = c.gold, size = 12.5f, lineHeight = 1.5f, modifier = Modifier.padding(top = 10.dp),
+                transliteration,
+                color = c.gold, size = 12.5f, lineHeight = 1.5f, modifier = Modifier.padding(top = 4.dp),
+            )
+            Overline(
+                tr("adhkar.label.meaning"),
+                modifier = Modifier.padding(top = 12.dp),
             )
             TfText(
-                item.meaning,
-                color = c.fg2, size = 13.5f, lineHeight = 1.6f, modifier = Modifier.padding(top = 8.dp),
+                meaning,
+                color = c.fg2, size = 13.5f, lineHeight = 1.6f, modifier = Modifier.padding(top = 4.dp),
             )
         }
     }
@@ -1275,39 +1382,12 @@ private fun AdhkarRow(
 
 @Composable
 internal fun LoadingState(message: String) {
-    val c = LocalTf.current
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        BreathOrb(size = 64, color = c.accent, purple = c.purple)
-        TfText(message, color = c.fg2, size = 14f, modifier = Modifier.padding(top = 18.dp))
-    }
+    TfLoadingState(message)
 }
 
 @Composable
 internal fun ErrorState(message: String, onRetry: () -> Unit) {
-    val c = LocalTf.current
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        IconBadge("bookOpen", c.gold, size = 56, iconSize = 26)
-        TfText(
-            message, color = c.fg, size = 16f, align = TextAlign.Center,
-            modifier = Modifier.padding(top = 16.dp),
-        )
-        TfText(
-            "Check your connection and try again.",
-            color = c.fg3, size = 13f, align = TextAlign.Center, modifier = Modifier.padding(top = 6.dp),
-        )
-        Box(
-            Modifier.padding(top = 18.dp).clip(RoundedCornerShape(11.dp)).background(c.accent)
-                .then(pressScale(onRetry, 0.95f)).padding(horizontal = 20.dp, vertical = 11.dp),
-        ) { TfText("Try again", color = Color.White, size = 14f, weight = FontWeight.SemiBold) }
-    }
+    TfErrorState(message = message, retryLabel = tr("common.retry"), onRetry = onRetry)
 }
 
 @Composable

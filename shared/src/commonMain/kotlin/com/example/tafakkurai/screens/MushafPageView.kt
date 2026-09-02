@@ -26,6 +26,7 @@ import com.example.tafakkurai.quran.MushafUiState
 import com.example.tafakkurai.quran.MushafWord
 import com.example.tafakkurai.quran.arabicIndic
 import com.example.tafakkurai.quran.surahOf
+import com.example.tafakkurai.i18n.tr
 import com.example.tafakkurai.ui.*
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -75,8 +76,8 @@ fun MushafPageView(
     ) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             when {
-                page == null && state.error != null -> ErrorState(state.error, onRetry)
-                page == null -> LoadingState("Opening the mushaf…")
+                page == null && state.error != null -> ErrorState(tr(state.error), onRetry)
+                page == null -> LoadingState(tr("quran.mushaf.opening"))
                 else -> PageSheet(page, playingAyah, selectedAyah, mushaf, onTapAyah)
             }
         }
@@ -86,7 +87,7 @@ fun MushafPageView(
     // than blanking the sheet the reader is looking at.
     if (state.isLoading && page != null) {
         Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
-            TfText("Loading page…", color = c.fg3, size = 11f)
+            TfText(tr("quran.mushaf.loading_page"), color = c.fg3, size = 11f)
         }
     }
 }

@@ -13,12 +13,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.Tweaks
-import com.example.tafakkurai.ui.*
 import com.example.tafakkurai.i18n.tr
+import com.example.tafakkurai.sync.ActivityLog
+import com.example.tafakkurai.ui.*
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.koin.mp.KoinPlatform.getKoin
 
 @Composable
 fun AppearanceScreen(tweaks: Tweaks, onBack: () -> Unit) {
     val c = LocalTf.current
+    val activity = remember { getKoin().get<ActivityLog>() }
     Column(Modifier.fillMaxSize()) {
         BackBar(tr("appearance.title"), onBack)
         ScrollBody {
@@ -27,7 +32,14 @@ fun AppearanceScreen(tweaks: Tweaks, onBack: () -> Unit) {
                 TfText(tr("appearance.subtitle"), color = c.fg2, size = 13.5f, lineHeight = 1.5f)
             }
             Box(Modifier.padding(horizontal = HPAD.dp)) {
-                Segmented(listOf("dark" to tr("appearance.dark"), "light" to tr("appearance.light")), tweaks.mode, { tweaks.mode = it })
+                Segmented(
+                    listOf("dark" to tr("appearance.dark"), "light" to tr("appearance.light")),
+                    tweaks.mode,
+                    {
+                        tweaks.mode = it
+                        activity.record("settings", "appearance_mode_changed", buildJsonObject { put("mode", it) })
+                    },
+                )
             }
             val showMode = tweaks.mode
             val selected = if (showMode == "light") tweaks.lightTheme else tweaks.darkTheme
@@ -42,7 +54,14 @@ fun AppearanceScreen(tweaks: Tweaks, onBack: () -> Unit) {
                                 Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
                                     .background(col.bg1)
                                     .border(if (on) 2.dp else 0.5.dp, if (on) c.accent else col.line, RoundedCornerShape(18.dp))
-                                    .then(pressScale({ if (showMode == "light") tweaks.lightTheme = meta.key else tweaks.darkTheme = meta.key }, 0.97f))
+                                    .then(pressScale({
+                                        if (showMode == "light") tweaks.lightTheme = meta.key else tweaks.darkTheme = meta.key
+                                        activity.record(
+                                            "settings",
+                                            "appearance_theme_changed",
+                                            buildJsonObject { put("mode", showMode); put("theme", meta.key) },
+                                        )
+                                    }, 0.97f))
                                     .padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
@@ -50,7 +69,6 @@ fun AppearanceScreen(tweaks: Tweaks, onBack: () -> Unit) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         TfText(meta.name, color = col.fg, size = 15f, weight = FontWeight.SemiBold, family = Fonts.display)
-                                        TfText(meta.concept, color = col.fg2, size = 11.5f)
                                     }
                                     if (on) Box(Modifier.size(22.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
                                         TfIcon("check", size = 13, color = Color.White)

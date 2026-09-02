@@ -1,0 +1,32 @@
+-- A line the user wrote about how a habit went on a given day.
+--
+-- The column is `body`, not `text`, matching gratitudeEntry: `text` is a type keyword and
+-- reads badly in every query that touches it. The sync payload key is therefore "body",
+-- which is what habits.Note in the Go backend is tagged with.
+CREATE TABLE habitNote (
+    id        TEXT NOT NULL PRIMARY KEY,
+    habitId   TEXT NOT NULL,
+    dateKey   TEXT NOT NULL,
+    body      TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    deleted   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX habitNote_habit ON habitNote(deleted, habitId, createdAt);
+
+upsert:
+INSERT OR REPLACE INTO habitNote (id, habitId, dateKey, body, createdAt, updatedAt, deleted)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectForHabit:
+SELECT * FROM habitNote WHERE deleted = 0 AND habitId = ? ORDER BY createdAt DESC;
+
+selectAll:
+SELECT * FROM habitNote WHERE deleted = 0 ORDER BY createdAt DESC;
+
+softDelete:
+UPDATE habitNote SET deleted = 1, updatedAt = ? WHERE id = ?;
+
+purgeDeleted:
+DELETE FROM habitNote WHERE deleted = 1;

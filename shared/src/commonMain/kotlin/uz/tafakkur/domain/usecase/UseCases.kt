@@ -3,6 +3,7 @@ package uz.tafakkur.domain.usecase
 import kotlinx.coroutines.flow.Flow
 import uz.tafakkur.domain.model.AuthProvider
 import uz.tafakkur.domain.model.CoachEvent
+import uz.tafakkur.domain.model.CompleteLessonCommand
 import uz.tafakkur.domain.repository.HifzRepository
 import uz.tafakkur.domain.repository.AuthRepository
 import uz.tafakkur.domain.repository.CoachRepository
@@ -123,7 +124,8 @@ class GetLessonUseCase(private val repo: LearnRepository) {
     suspend operator fun invoke(lessonId: String) = repo.lesson(lessonId)
 }
 class CompleteLessonUseCase(private val repo: LearnRepository) {
-    suspend operator fun invoke(lessonId: String) = repo.complete(lessonId)
+    suspend operator fun invoke(lessonId: String, command: CompleteLessonCommand) =
+        repo.complete(lessonId, command)
 }
 
 // ---- Trackers ----

@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -309,12 +310,17 @@ func (h *Handler) grade(w http.ResponseWriter, r *http.Request) {
 	// than for memorizing, and a long backlog would dump hundreds of XP at once.
 	state := gamify.State{}
 	if req.State == stateReview {
-		s, err := h.gamify.Award(r.Context(), userID, gamify.EventAyahMemorized)
+		award, err := h.gamify.AwardOnce(r.Context(), userID, gamify.AwardCommand{
+			Event: gamify.EventAyahMemorized,
+			IdempotencyKey: "ayah:" + strconv.Itoa(req.Surah) + ":" +
+				strconv.Itoa(req.Ayah),
+			LocalDate: g.ReviewedAt,
+		})
 		if err != nil {
 			platform.Error(w, http.StatusInternalServerError, platform.CodeInternal, "could not record progress")
 			return
 		}
-		state = s
+		state = award.State
 	}
 	platform.JSON(w, http.StatusOK, map[string]any{
 		"ok": true,

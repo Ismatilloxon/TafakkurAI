@@ -1,25 +1,12 @@
 package com.example.tafakkurai
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.staticCompositionLocalOf
 
-/** App-wide profile image, held in memory. Avatar reads this everywhere. */
-object ProfileImage {
-    var bitmap by mutableStateOf<ImageBitmap?>(null)
-        private set
-    /** raw bytes kept so callers can persist to disk later */
-    var bytes: ByteArray? = null
-        private set
-
-    fun set(newBytes: ByteArray?, newBitmap: ImageBitmap?) {
-        bytes = newBytes
-        bitmap = newBitmap
-    }
-    fun clear() { bytes = null; bitmap = null }
-}
+/** Supplied once by App so every avatar reads the same persisted photo without Koin lookup. */
+val LocalProfilePhotoBytes: ProvidableCompositionLocal<ByteArray?> =
+    staticCompositionLocalOf { null }
 
 /**
  * Returns a lambda that launches the native photo picker.

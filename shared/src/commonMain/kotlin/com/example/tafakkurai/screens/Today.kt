@@ -17,6 +17,9 @@ import com.example.tafakkurai.adhkar.AdhkarCategory
 import com.example.tafakkurai.adhkar.AdhkarStore
 import com.example.tafakkurai.dhikr.DhikrStore
 import com.example.tafakkurai.gratitude.GratitudeStore
+import com.example.tafakkurai.habits.HabitStore
+import com.example.tafakkurai.finance.domain.formatMoney
+import com.example.tafakkurai.finance.domain.FinanceRepository
 import com.example.tafakkurai.prayer.LocationPrayerScheduleRepository
 import com.example.tafakkurai.prayer.PrayerMark
 import com.example.tafakkurai.prayer.PrayerMarkStore
@@ -24,14 +27,25 @@ import com.example.tafakkurai.prayer.SalahProgressHero
 import com.example.tafakkurai.quran.QuranProgressStore
 import com.example.tafakkurai.quran.TOTAL_AYAH_COUNT
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.ui.components.TfIconButton
+import com.example.tafakkurai.ui.components.TfSecondaryButton
 import com.example.tafakkurai.balance.BalanceCalculator
 import com.example.tafakkurai.i18n.LocalStrings
 import com.example.tafakkurai.i18n.formatHeaderDate
+import com.example.tafakkurai.i18n.formatJournalDate
 import com.example.tafakkurai.i18n.greetingKey
 import com.example.tafakkurai.i18n.tr
 import com.example.tafakkurai.prayer.currentSecondsOfDay
 import com.example.tafakkurai.prayer.deviceDate
+import com.example.tafakkurai.prayer.localizedPrayerName
 import com.example.tafakkurai.spiritual.PrefPersistence
+import com.example.tafakkurai.sync.ActivityLog
+import com.example.tafakkurai.sleep.SleepTime
+import com.example.tafakkurai.sleep.SleepViewModel
+import com.example.tafakkurai.social.domain.SocialRepository
+import com.example.tafakkurai.tasks.data.TaskStore
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.koin.mp.KoinPlatform.getKoin
 
 /**
@@ -43,7 +57,10 @@ import org.koin.mp.KoinPlatform.getKoin
  */
 @Composable
 private fun greetingTitle(): String {
-    val name = remember { getKoin().get<PrefPersistence>().get(AppPrefs.DISPLAY_NAME).orEmpty() }
+    // Telegram hands back "first last"; the header shows the first name only.
+    val name = remember {
+        getKoin().get<PrefPersistence>().get(AppPrefs.DISPLAY_NAME).orEmpty().trim().substringBefore(' ')
+    }
     val greeting = tr(greetingKey(currentSecondsOfDay()))
     return if (name.isBlank()) greeting else "$greeting, $name"
 }
@@ -52,30 +69,120 @@ private fun greetingTitle(): String {
 @Composable
 private fun headerDate(): String = LocalStrings.current.formatHeaderDate(remember { deviceDate(0) })
 
-private val ASPECT = mapOf(
-    "spiritual" to "gold", "physical" to "green", "educational" to "purple",
-    "social" to "cyan", "financial" to "gold",
-)
-
-private data class BlockDef(val key: String, val title: String, val aspect: String, val color: String)
+private data class BlockDef(val key: String, val titleKey: String, val color: String)
 
 private val ALL_BLOCKS = listOf(
-    BlockDef("prayer", "Prayer times", "Spiritual", "gold"),
-    BlockDef("quran", "Qurʼan & dhikr", "Spiritual", "green"),
-    BlockDef("ai", "AI guidance", "Educational", "purple"),
-    BlockDef("plan", "Today's plan", "Productivity", "teal"),
-    BlockDef("balance", "Balance", "Spiritual", "cyan"),
-    BlockDef("habits", "Habits", "Physical", "green"),
-    BlockDef("gratitude", "Gratitude", "Spiritual", "gold"),
-    BlockDef("continue", "Continue learning", "Educational", "purple"),
-    BlockDef("circle", "From your circle", "Social", "cyan"),
-    BlockDef("portfolio", "Portfolio", "Financial", "gold"),
-    BlockDef("sleep", "Sleep", "Physical", "green"),
+    BlockDef("prayer", "today.block.prayer", "gold"),
+    BlockDef("quran", "today.block.quran", "green"),
+    BlockDef("ai", "today.block.ai", "purple"),
+    BlockDef("plan", "today.block.plan", "teal"),
+    BlockDef("balance", "today.block.balance", "cyan"),
+    BlockDef("habits", "today.block.habits", "green"),
+    BlockDef("gratitude", "today.block.gratitude", "gold"),
+    BlockDef("circle", "today.block.social", "cyan"),
+    BlockDef("finance", "today.block.finance", "gold"),
+    BlockDef("sleep", "today.block.sleep", "green"),
 )
 private val DEFAULT_ORDER = listOf("prayer", "quran", "ai", "plan", "balance", "habits")
+private val ALL_BLOCK_KEYS = ALL_BLOCKS.mapTo(linkedSetOf(), BlockDef::key)
+private const val DASHBOARD_LAYOUT_VERSION = "v1:"
+
+private data class RestoredDashboardLayout(
+    val order: List<String>,
+    val shouldPersistCanonicalValue: Boolean,
+)
+
+/**
+ * Owns the user's device-level Today layout and exposes only an immutable list to Compose.
+ *
+ * The value is versioned so a future schema can migrate deliberately. Unversioned comma-separated
+ * values are accepted as a legacy format, while an unknown future version is never overwritten by
+ * an older app. Unknown/duplicate block ids in the current format are removed before rendering.
+ */
+@Stable
+private class TodayDashboardLayout(private val prefs: PrefPersistence) {
+    private val mutableOrder = mutableStateListOf<String>()
+    val order: List<String> = mutableOrder
+
+    init {
+        val restored = restoreDashboardOrder(prefs.get(AppPrefs.TODAY_DASHBOARD_ORDER))
+        mutableOrder.addAll(restored.order)
+        if (restored.shouldPersistCanonicalValue) persist()
+    }
+
+    fun move(key: String, offset: Int): Pair<Int, Int>? {
+        if (offset != -1 && offset != 1) return null
+        val from = mutableOrder.indexOf(key)
+        val to = from + offset
+        if (from < 0 || to !in mutableOrder.indices) return null
+        mutableOrder[from] = mutableOrder[to]
+        mutableOrder[to] = key
+        persist()
+        return from to to
+    }
+
+    fun remove(key: String): Boolean {
+        if (!mutableOrder.remove(key)) return false
+        persist()
+        return true
+    }
+
+    fun add(key: String): Boolean {
+        if (key !in ALL_BLOCK_KEYS || key in mutableOrder) return false
+        mutableOrder.add(key)
+        persist()
+        return true
+    }
+
+    fun reset() {
+        mutableOrder.clear()
+        mutableOrder.addAll(DEFAULT_ORDER)
+        persist()
+    }
+
+    private fun persist() {
+        prefs.put(
+            AppPrefs.TODAY_DASHBOARD_ORDER,
+            DASHBOARD_LAYOUT_VERSION + mutableOrder.joinToString(","),
+        )
+    }
+}
+
+private fun restoreDashboardOrder(raw: String?): RestoredDashboardLayout {
+    if (raw == null) {
+        return RestoredDashboardLayout(DEFAULT_ORDER, shouldPersistCanonicalValue = true)
+    }
+
+    val isCurrentVersion = raw.startsWith(DASHBOARD_LAYOUT_VERSION)
+    val hasUnknownVersion = !isCurrentVersion && raw.matches(Regex("v\\d+:.*"))
+    if (hasUnknownVersion) {
+        return RestoredDashboardLayout(DEFAULT_ORDER, shouldPersistCanonicalValue = false)
+    }
+
+    val payload = if (isCurrentVersion) raw.removePrefix(DASHBOARD_LAYOUT_VERSION) else raw
+    // `v1:` is an intentional layout with every optional block removed; a blank legacy value is
+    // corrupt and migrates to the default instead.
+    if (isCurrentVersion && payload.isEmpty()) {
+        return RestoredDashboardLayout(emptyList(), shouldPersistCanonicalValue = false)
+    }
+
+    val validated = payload.split(',')
+        .map(String::trim)
+        .filter { it in ALL_BLOCK_KEYS }
+        .distinct()
+    val restored = validated.ifEmpty { DEFAULT_ORDER }
+    val canonical = DASHBOARD_LAYOUT_VERSION + restored.joinToString(",")
+    return RestoredDashboardLayout(
+        order = restored,
+        shouldPersistCanonicalValue = raw != canonical,
+    )
+}
 
 @Composable
 fun TodayScreen(
+    financeStore: FinanceRepository,
+    socialStore: SocialRepository,
+    sleepViewModel: SleepViewModel,
     onOpenModule: (String) -> Unit,
     onCoach: () -> Unit,
     onProfile: () -> Unit = {},
@@ -83,8 +190,10 @@ fun TodayScreen(
     onOpenQuran: () -> Unit = {},
 ) {
     val c = LocalTf.current
+    val activity = remember { getKoin().get<ActivityLog>() }
+    val prefs = remember { getKoin().get<PrefPersistence>() }
+    val dashboardLayout = remember(prefs) { TodayDashboardLayout(prefs) }
     var customize by remember { mutableStateOf(false) }
-    val order = remember { mutableStateListOf<String>().apply { addAll(DEFAULT_ORDER) } }
 
     Column(Modifier.fillMaxSize()) {
         // Header
@@ -94,24 +203,63 @@ fun TodayScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(Modifier.weight(1f)) {
-                Overline("BISMILLAH.")
+                Overline(tr("today.bismillah"))
                 TfText(
                     greetingTitle(),
                     color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.display,
                     modifier = Modifier.padding(top = 3.dp),
                 )
-                TfText("$TCITY · ${headerDate()}", color = c.fg2, size = 13f, modifier = Modifier.padding(top = 2.dp))
+                TfText(headerDate(), color = c.fg2, size = 13f, modifier = Modifier.padding(top = 2.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.then(pressScale({ customize = !customize }, 0.95f))) {
-                    Pill(if (customize) "Done" else "Customize", c.accent, c.accent.soft(0.16f))
+                Box(Modifier.then(pressScale({
+                    customize = !customize
+                    activity.record(
+                        "today",
+                        if (customize) "dashboard_customization_opened" else "dashboard_customization_closed",
+                    )
+                }, 0.95f))) {
+                    Pill(tr(if (customize) "common.done" else "today.customize"), c.accent, c.accent.soft(0.16f))
                 }
                 UserAvatar(onClick = onProfile)
             }
         }
 
         if (customize) {
-            CustomizeBoard(order)
+            CustomizeBoard(
+                order = dashboardLayout.order,
+                onMove = { key, offset ->
+                    dashboardLayout.move(key, offset)?.let { (from, to) ->
+                        activity.record(
+                            "today",
+                            "dashboard_block_moved",
+                            buildJsonObject { put("block", key); put("from", from); put("to", to) },
+                        )
+                    }
+                },
+                onRemove = { key ->
+                    if (dashboardLayout.remove(key)) {
+                        activity.record(
+                            "today",
+                            "dashboard_block_removed",
+                            buildJsonObject { put("block", key) },
+                        )
+                    }
+                },
+                onAdd = { key ->
+                    if (dashboardLayout.add(key)) {
+                        activity.record(
+                            "today",
+                            "dashboard_block_added",
+                            buildJsonObject { put("block", key) },
+                        )
+                    }
+                },
+                onReset = {
+                    dashboardLayout.reset()
+                    activity.record("today", "dashboard_layout_reset")
+                },
+            )
         } else {
             ScrollScreen {
                 // Hero ring — live, fills clockwise toward the next prayer
@@ -119,12 +267,22 @@ fun TodayScreen(
                     SalahProgressHero(onClick = onOpenPrayer)
                 }
                 TfText(
-                    "Your day starts at Maghrib — plan mindful of Salah.",
+                    tr("today.salah_anchor"),
                     color = c.fg3, size = 12.5f, modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
                     align = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 Spacer(Modifier.height(2.dp))
-                order.forEach { key -> TodayBlock(key, onOpenModule, onCoach, onOpenQuran) }
+                dashboardLayout.order.forEach { key ->
+                    TodayBlock(
+                        key = key,
+                        financeStore = financeStore,
+                        socialStore = socialStore,
+                        sleepViewModel = sleepViewModel,
+                        onOpenModule = onOpenModule,
+                        onCoach = onCoach,
+                        onOpenQuran = onOpenQuran,
+                    )
+                }
             }
         }
     }
@@ -133,6 +291,9 @@ fun TodayScreen(
 @Composable
 private fun TodayBlock(
     key: String,
+    financeStore: FinanceRepository,
+    socialStore: SocialRepository,
+    sleepViewModel: SleepViewModel,
     onOpenModule: (String) -> Unit,
     onCoach: () -> Unit,
     onOpenQuran: () -> Unit = {},
@@ -140,7 +301,7 @@ private fun TodayBlock(
     val def = ALL_BLOCKS.first { it.key == key }
     val c = LocalTf.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        AspectHeading(def.title, c.named(def.color))
+        AspectHeading(tr(def.titleKey), c.named(def.color))
         when (key) {
             "prayer" -> InsetCard {
                 // Live, GPS-calculated schedule — same source the hero ring uses, so
@@ -149,7 +310,9 @@ private fun TodayBlock(
                 // Completion marks from the shared store, so the card mirrors the ring/tracker.
                 val markStore = remember { getKoin().get<PrayerMarkStore>() }
                 val prayers = repo.schedule(0).filter { it.key != "sunrise" }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (prayers.isEmpty()) {
+                    TfText(tr("prayer.location.required"), color = c.fg2, size = 13f, lineHeight = 1.4f)
+                } else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     prayers.forEach { p ->
                         // Tap cycles the status: incomplete → on-time → jamaat → incomplete.
                         // Same shared store the hero ring and tracker use, so all three agree
@@ -167,7 +330,7 @@ private fun TodayBlock(
                                     .background(if (on) meta.color.soft(0.18f) else c.card3),
                                 contentAlignment = Alignment.Center,
                             ) { TfIcon(meta.icon, size = 17, color = if (on) meta.color else c.fg3) }
-                            TfText(p.name, color = if (on) c.fg else c.fg3, size = 11f, weight = FontWeight.Medium)
+                            TfText(localizedPrayerName(p.key), color = if (on) c.fg else c.fg3, size = 11f, weight = FontWeight.Medium)
                             TfText(p.time, color = c.fg3, size = 10f, family = Fonts.mono)
                         }
                     }
@@ -186,23 +349,32 @@ private fun TodayBlock(
                         Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        StatTile("${quran.overallPercent}%", "Qurʼan read", c.green)
-                        StatTile(groupThousands(dhikr.todayTotal), "dhikr today", c.gold)
-                        StatTile("${dhikr.streak}", "day streak", c.warn)
+                        StatTile("${quran.overallPercent}%", tr("today.quran.read"), c.green)
+                        StatTile(groupThousands(dhikr.todayTotal), tr("today.quran.dhikr_today"), c.gold)
+                        StatTile("${dhikr.streak}", tr("today.quran.day_streak"), c.warn)
                     }
                     InsetCard(onClick = onOpenQuran) {
                         val last = quran.lastRead
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Column(Modifier.weight(1f)) {
-                                Overline("LAST READ")
+                                Overline(tr("today.quran.last_read"))
                                 TfText(
-                                    if (last != null) "${last.surahName} · Ayah ${last.ayahNumber}" else "Not started yet",
+                                    if (last != null) {
+                                        tr("today.quran.last_read_value", last.surahName, last.ayahNumber)
+                                    } else {
+                                        tr("today.quran.not_started")
+                                    },
                                     color = if (last != null) c.fg else c.fg2,
                                     size = 15f, weight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                                 TfText(
-                                    "${quran.totalRead} of $TOTAL_AYAH_COUNT ayahs · ${quran.completedSurahCount} surahs complete",
+                                    tr(
+                                        "today.quran.progress",
+                                        quran.totalRead,
+                                        TOTAL_AYAH_COUNT,
+                                        quran.completedSurahCount,
+                                    ),
                                     color = c.fg3, size = 11.5f, modifier = Modifier.padding(top = 2.dp),
                                 )
                                 ProgressBar(
@@ -217,13 +389,13 @@ private fun TodayBlock(
                         Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        AdhkarMini("Morning adhkar", "sunrise", adhkar, AdhkarCategory.MORNING, onOpenQuran)
-                        AdhkarMini("Evening adhkar", "sunset", adhkar, AdhkarCategory.EVENING, onOpenQuran)
+                        AdhkarMini(tr("today.adhkar.morning"), "sunrise", adhkar, AdhkarCategory.MORNING, onOpenQuran)
+                        AdhkarMini(tr("today.adhkar.evening"), "sunset", adhkar, AdhkarCategory.EVENING, onOpenQuran)
                     }
                 }
             }
             "ai" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(horizontal = HPAD.dp)) {
-                ProactiveCard(TBRIEF.line)
+                ProactiveCard(tr("today.ai.local_action_hint"))
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.card)
                         .border(0.5.dp, c.sep, RoundedCornerShape(14.dp))
@@ -233,29 +405,30 @@ private fun TodayBlock(
                     Box(Modifier.size(34.dp).clip(CircleShape).background(c.accent.soft(0.16f)), contentAlignment = Alignment.Center) {
                         TfIcon("sparkles", size = 18, color = c.accent)
                     }
-                    TfText("Ask Murabbiy anything", color = c.fg, size = 14.5f, modifier = Modifier.weight(1f))
+                    TfText(tr("today.ai.ask"), color = c.fg, size = 14.5f, modifier = Modifier.weight(1f))
                     TfIcon("chevronRight", size = 18, color = c.fg3)
                 }
             }
-            "plan" -> InsetCard {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    TDAYPLAN.take(6).forEach { item -> PlanRow(item) { item.cat?.let { } } }
-                }
-            }
+            "plan" -> ConnectedTodayPlan(onOpenModule)
             "balance" -> InsetCard {
                 // Computed from recorded activity — prayers marked, dhikr counted, ayahs
                 // read, gratitude written. Every store below keeps Compose state, so this
                 // card moves the moment any of them changes.
                 val balance = remember {
+                    val activityLog = getKoin().get<ActivityLog>()
                     BalanceCalculator(
                         prayers = getKoin().get(),
                         quran = getKoin().get(),
                         dhikr = getKoin().get(),
                         adhkar = getKoin().get(),
                         gratitude = getKoin().get(),
+                        activity = activityLog,
                     )
                 }
-                val scores = balance.current()
+                // ActivityLog is a Flow rather than Compose state. Collecting it here makes
+                // sleep/finance/social activity move the radar immediately after the write.
+                val activityEvents by remember { getKoin().get<ActivityLog>().events }.collectAsState()
+                val scores = remember(activityEvents) { balance.current() }
                 val untracked = scores.count { !it.isTracked }
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -282,7 +455,7 @@ private fun TodayBlock(
                                             .background(balanceColor(d.key, d.isTracked, c)),
                                     )
                                     TfText(
-                                        d.label,
+                                        tr("balance.dimension.${d.key}"),
                                         color = if (d.isTracked) c.fg2 else c.fg3,
                                         size = 12.5f, modifier = Modifier.weight(1f),
                                     )
@@ -300,33 +473,99 @@ private fun TodayBlock(
                     // score is explainable rather than a mood.
                     scores.filter { it.isTracked }.minByOrNull { it.value ?: 1f }?.let { weakest ->
                         TfText(
-                            "${weakest.label}: ${weakest.detail}",
+                            tr("today.balance.weakest", tr("balance.dimension.${weakest.key}")),
                             color = c.fg3, size = 11.5f, lineHeight = 1.45f,
                         )
                     }
                     if (untracked > 0) {
                         TfText(
-                            "$untracked dimensions aren't tracked yet, so they show “—” " +
-                                "instead of a guess.",
+                            tr("today.balance.untracked", untracked),
                             color = c.fg3, size = 11.5f, lineHeight = 1.45f,
                         )
                     }
                 }
             }
-            "habits" -> Row(
-                Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                THABITS.take(4).forEach { h ->
-                    Card(Modifier.weight(1f), pad = 12) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            RingGauge(
-                                if (h.done) 1f else 0.6f, c.named(if (h.accent == "blue") "cyan" else h.accent), c.card3,
-                                strokeWidth = 4f, size = 40,
-                            ) { TfIcon(h.icon, size = 16, color = c.named(if (h.accent == "blue") "cyan" else h.accent)) }
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                TfIcon("flame", size = 11, color = c.warn)
-                                TfText("${h.streak}", color = c.fg2, size = 11f, family = Fonts.mono)
+            "habits" -> {
+                // Live from the shared HabitStore — the same single instance the Habits
+                // module writes, so completing a habit there moves this card immediately
+                // and completing one here is real everywhere. THABITS (the four-item mock
+                // this block used to render) is no longer referenced.
+                val habitStore = remember { getKoin().get<HabitStore>() }
+                val revision = habitStore.revision
+                val todayKey = habitStore.today()
+                val due = habitStore.scheduledOn(todayKey)
+                val habitStats = remember(revision) { habitStore.statsAll() }
+                val doneCount = due.count { habitStats[it.id]?.isDoneToday == true }
+
+                if (due.isEmpty()) {
+                    InsetCard(onClick = { onOpenModule("Habits") }) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(11.dp),
+                        ) {
+                            TfIcon("activity", size = 16, color = c.green)
+                            TfText(
+                                tr(
+                                    if (habitStore.habits.isEmpty()) {
+                                        "today.habits.start"
+                                    } else {
+                                        "today.habits.none_scheduled"
+                                    },
+                                ),
+                                color = c.fg2, size = 13.5f, modifier = Modifier.weight(1f),
+                            )
+                            TfIcon("chevronRight", size = 16, color = c.fg3)
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                                .then(pressScale({ onOpenModule("Habits") }, 0.99f)),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TfText(
+                                tr("today.habits.done", doneCount, due.size),
+                                color = c.fg2, size = 13f, modifier = Modifier.weight(1f),
+                            )
+                            TfIcon("chevronRight", size = 16, color = c.fg3)
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            // The four most at-risk first: still open, longest streak. The
+                            // point of this card is to catch the one about to be lost, not
+                            // to list them alphabetically.
+                            due.sortedWith(
+                                compareBy<com.example.tafakkurai.habits.Habit> {
+                                    habitStats[it.id]?.isDoneToday == true
+                                }.thenByDescending { habitStats[it.id]?.current ?: 0 }
+                            ).take(4).forEach { h ->
+                                val hs = habitStats[h.id]
+                                val tint = c.named(h.colorKey)
+                                Card(
+                                    Modifier.weight(1f), pad = 12,
+                                    onClick = { onOpenModule("Habits") },
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        RingGauge(
+                                            if (hs?.isDoneToday == true) 1f else (hs?.rate ?: 0f),
+                                            tint, c.card3, strokeWidth = 4f, size = 40,
+                                        ) { TfIcon(h.icon, size = 16, color = tint) }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        ) {
+                                            TfIcon("flame", size = 11, color = c.warn)
+                                            TfText("${hs?.current ?: 0}", color = c.fg2, size = 11f, family = Fonts.mono)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -340,7 +579,7 @@ private fun TodayBlock(
                     if (todays.isEmpty()) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                             TfIcon("leaf", size = 15, color = c.gold)
-                            TfText("Nothing noted yet today — name one small thing.", color = c.fg2, size = 13.5f)
+                            TfText(tr("today.gratitude.empty"), color = c.fg2, size = 13.5f)
                         }
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -351,53 +590,259 @@ private fun TodayBlock(
                     }
                 }
             }
-            "continue" -> InsetCard(onClick = { onOpenModule("Learn") }) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    IconBadge("terminal", c.named("cyan"), size = 42)
-                    Column(Modifier.weight(1f)) {
-                        TfText(TSUBJECTS[1].next, color = c.fg, size = 14.5f, weight = FontWeight.SemiBold)
-                        TfText(TSUBJECTS[1].name, color = c.fg2, size = 12.5f)
-                        ProgressBar(TSUBJECTS[1].progress, c.named("cyan"), modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
-                    }
-                    TfIcon("play", size = 18, color = c.accent)
-                }
-            }
-            "circle" -> InsetCard {
-                val p = TSOCIAL.first()
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Avatar(p.author, p.avatarSeed)
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            TfText(p.author, color = c.fg, size = 13.5f, weight = FontWeight.SemiBold)
-                            TfText("· ${p.time}", color = c.fg3, size = 12f)
+            "circle" -> {
+                val summary = socialStore.connectionSummaries().firstOrNull()
+                InsetCard(onClick = { onOpenModule("Social") }) {
+                    if (summary == null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            TfIcon("users", size = 18, color = c.cyan)
+                            TfText(tr("today.social.empty"), color = c.fg2, size = 13.5f, modifier = Modifier.weight(1f))
+                            TfIcon("chevronRight", size = 17, color = c.fg3)
                         }
-                        TfText(p.text, color = c.fg2, size = 13f, lineHeight = 1.5f, maxLines = 3, modifier = Modifier.padding(top = 3.dp))
+                    } else {
+                        val connection = summary.connection
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(connection.name, size = 38)
+                            Column(Modifier.weight(1f)) {
+                                TfText(connection.name, color = c.fg, size = 13.5f, weight = FontWeight.SemiBold)
+                                TfText(
+                                    if (connection.lastContactDate.isBlank()) {
+                                        tr("social.never_checked_in")
+                                    } else {
+                                        tr(
+                                            "social.last_check_in",
+                                            LocalStrings.current.formatJournalDate(
+                                                connection.lastContactDate,
+                                                socialStore.currentDateKey(),
+                                            ),
+                                        )
+                                    },
+                                    color = c.fg2,
+                                    size = 12.5f,
+                                )
+                            }
+                            TfIcon("chevronRight", size = 17, color = c.fg3)
+                        }
                     }
                 }
             }
-            "portfolio" -> InsetCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Overline("NET WORTH")
-                        TfText("$${TFINANCE.net}", color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.mono)
+            "finance" -> {
+                // Use the user's persisted ledger selection. Existing amounts remain in their
+                // original currencies; snapshot never performs an implicit conversion.
+                val snapshot = financeStore.snapshot(currencyCode = financeStore.preferredCurrency)
+                InsetCard(onClick = { onOpenModule("Finance") }) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        IconBadge("wallet", c.gold, size = 42)
+                        Column(Modifier.weight(1f)) {
+                            TfText(
+                                formatMoney(snapshot.balanceMinor, snapshot.currencyCode),
+                                color = if (snapshot.balanceMinor >= 0L) c.fg else c.rose,
+                                size = 19f,
+                                weight = FontWeight.Bold,
+                                family = Fonts.mono,
+                            )
+                            TfText(
+                                if (financeStore.loadFailed) tr("finance.load_failed") else tr("finance.month_balance"),
+                                color = if (financeStore.loadFailed) c.rose else c.fg2,
+                                size = 12f,
+                            )
+                        }
+                        TfIcon("chevronRight", size = 17, color = c.fg3)
                     }
-                    Pill("+${TFINANCE.change}%", c.green, c.green.soft(0.16f), leading = { TfIcon("trendingUp", size = 11, color = c.green) })
                 }
             }
-            "sleep" -> InsetCard {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    RingGauge(TSLEEP.score / 100f, c.named("purple"), c.card3, strokeWidth = 5f, size = 48) {
-                        TfText("${TSLEEP.score}", color = c.fg, size = 15f, weight = FontWeight.Bold, family = Fonts.mono)
-                    }
-                    Column(Modifier.weight(1f)) {
-                        TfText("${TSLEEP.asleep} asleep", color = c.fg, size = 14.5f, weight = FontWeight.SemiBold)
-                        TfText("Bed ${TSLEEP.bedtime} · Wake ${TSLEEP.wake}", color = c.fg2, size = 12.5f)
+            "sleep" -> {
+                val night = sleepViewModel.lastNight
+                InsetCard(onClick = { onOpenModule("Sleep") }) {
+                    if (night == null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            TfIcon("moonStars", size = 18, color = c.purple)
+                            TfText(tr("today.sleep.empty"), color = c.fg2, size = 13.5f, modifier = Modifier.weight(1f))
+                            TfIcon("chevronRight", size = 17, color = c.fg3)
+                        }
+                    } else {
+                        val score = sleepViewModel.sleepScore.value
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            RingGauge(score / 100f, c.purple, c.card3, strokeWidth = 5f, size = 48) {
+                                TfText("$score", color = c.fg, size = 15f, weight = FontWeight.Bold, family = Fonts.mono)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                TfText(
+                                    tr("today.sleep.asleep", SleepTime.formatDurationCompact(night.asleepMinutes)),
+                                    color = c.fg,
+                                    size = 14.5f,
+                                    weight = FontWeight.SemiBold,
+                                )
+                                TfText(
+                                    tr(
+                                        "today.sleep.bed_wake",
+                                        SleepTime.formatClockAt(night.inBedStartMs),
+                                        SleepTime.formatClockAt(night.inBedEndMs),
+                                    ),
+                                    color = c.fg2,
+                                    size = 12.5f,
+                                )
+                            }
+                            TfIcon("chevronRight", size = 17, color = c.fg3)
+                        }
                     }
                 }
             }
         }
     }
 }
+
+private data class ConnectedPlanRow(
+    val id: String,
+    val item: DayPlanItem,
+    val route: String,
+)
+
+/**
+ * Today's plan from actual stores and the durable activity stream.
+ *
+ * Prayer and habit source rows win over their activity events, because those stores also
+ * represent undo and schedule state. Every other qualifying action is projected by
+ * ActivityLog. There is no prototype fallback: an empty feature stays honestly empty.
+ */
+@Composable
+private fun ConnectedTodayPlan(onOpenModule: (String) -> Unit) {
+    val c = LocalTf.current
+    val strings = LocalStrings.current
+    val prayerSchedule = remember { getKoin().get<LocationPrayerScheduleRepository>() }
+    val prayerMarks = remember { getKoin().get<PrayerMarkStore>() }
+    val habits = remember { getKoin().get<HabitStore>() }
+    val tasks = remember { getKoin().get<TaskStore>() }
+    val activity = remember { getKoin().get<ActivityLog>() }
+    val activityEvents by activity.events.collectAsState()
+    val habitRevision = habits.revision
+    val taskRevision = tasks.revision
+    val date = habits.today()
+    val scheduledPrayers = prayerSchedule.schedule(0).filter { it.key != "sunrise" }
+    val prayerStateSnapshot = scheduledPrayers.associate { it.key to prayerMarks.stateOf(it.key) }
+
+    val rows = remember(activityEvents, habitRevision, taskRevision, date, strings, scheduledPrayers, prayerStateSnapshot) {
+        val prayerRows = scheduledPrayers.map { prayer ->
+                val mark = prayerStateSnapshot[prayer.key] ?: PrayerMark.NONE
+                ConnectedPlanRow(
+                    id = "prayer:${prayer.key}:$date",
+                    item = DayPlanItem(
+                        type = "salah",
+                        name = prayer.name,
+                        time = prayer.time,
+                        cat = "spiritual",
+                        done = mark != PrayerMark.NONE,
+                        state = if (mark == PrayerMark.NONE) "upcoming" else "done",
+                    ),
+                    route = "prayer",
+                )
+            }
+
+        val habitStats = habits.statsAll()
+        val habitRows = habits.scheduledOn(date).map { habit ->
+            ConnectedPlanRow(
+                id = "habit:${habit.id}:$date",
+                item = DayPlanItem(
+                    type = "task",
+                    title = habit.name,
+                    time = habit.timeLocal,
+                    cat = habitAspect(habit.categoryId),
+                    done = habitStats[habit.id]?.isDoneToday == true,
+                ),
+                route = "habits",
+            )
+        }
+
+        val taskRows = tasks.onDate(date).map { task ->
+            ConnectedPlanRow(
+                id = "task:${task.id}",
+                item = DayPlanItem(
+                    type = "task",
+                    title = task.title,
+                    time = task.dueTime,
+                    cat = taskAspect(task.categoryId),
+                    done = task.completed,
+                ),
+                route = "do",
+            )
+        }
+
+        val eventRows = activity.todayPlan(date)
+            // Prayer and habits already come from their richer source-of-truth rows above.
+            .filterNot {
+                it.route == "prayer" || it.route == "habits" || it.planKey.startsWith("task:")
+            }
+            .map { event ->
+                val title = event.titleArgument?.let { strings.format(event.titleKey, it) }
+                    ?: strings[event.titleKey]
+                ConnectedPlanRow(
+                    id = event.id,
+                    item = DayPlanItem(
+                        type = "task",
+                        title = title,
+                        time = SleepTime.formatClockAt(event.occurredAt),
+                        cat = event.aspect,
+                        done = event.completed,
+                    ),
+                    route = event.route,
+                )
+            }
+
+        (prayerRows + habitRows + taskRows + eventRows).sortedWith(
+            compareBy<ConnectedPlanRow> { it.item.time.isBlank() }
+                .thenBy { it.item.time.ifBlank { "99:99" } }
+                .thenBy { it.item.title ?: it.item.name.orEmpty() },
+        )
+    }
+
+    InsetCard {
+        if (rows.isEmpty()) {
+            TfText(strings["today.plan.empty"], color = c.fg2, size = 13.5f)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                rows.take(MAX_TODAY_PLAN_ROWS).forEach { row ->
+                    key(row.id) {
+                        PlanRow(row.item) { onOpenModule(row.route) }
+                    }
+                }
+                if (rows.size > MAX_TODAY_PLAN_ROWS) {
+                    TfText(
+                        strings.format("today.plan.more", rows.size - MAX_TODAY_PLAN_ROWS),
+                        color = c.fg3,
+                        size = 11.5f,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun habitAspect(categoryId: String): String = when (categoryId) {
+    "health", "fitness", "sleep", "physical" -> "physical"
+    "relationships", "family", "social" -> "social"
+    "money", "finance", "financial" -> "financial"
+    "quran", "faith", "spiritual" -> "spiritual"
+    "learning", "study", "educational" -> "educational"
+    else -> "productivity"
+}
+
+private fun taskAspect(categoryId: String): String = when (categoryId) {
+    "health", "fitness", "sport" -> "physical"
+    "family", "relationships", "social" -> "social"
+    "money", "finance" -> "financial"
+    "quran", "faith" -> "spiritual"
+    "learning", "study" -> "educational"
+    else -> "productivity"
+}
+
+private const val MAX_TODAY_PLAN_ROWS = 10
 
 /** Compact morning/evening adhkar tile — count, ring and a way into the list. */
 @Composable
@@ -440,7 +885,7 @@ private fun PlanRow(item: DayPlanItem, onTap: () -> Unit) {
         "educational" -> c.purple; "spiritual" -> c.gold; else -> c.accent
     }
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        Modifier.fillMaxWidth().then(pressScale(onTap, 0.985f)).padding(vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
@@ -460,61 +905,67 @@ private fun PlanRow(item: DayPlanItem, onTap: () -> Unit) {
             )
             if (!salah && item.dur != null) TfText(item.dur, color = c.fg3, size = 11.5f)
         }
-        if (item.current) Pill("now", c.accent, c.accent.soft(0.16f))
-        else if (salah && item.state == "next") Pill("next", c.gold, c.gold.soft(0.16f))
+        if (item.current) Pill(tr("today.plan.now"), c.accent, c.accent.soft(0.16f))
+        else if (salah && item.state == "next") Pill(tr("today.plan.next"), c.gold, c.gold.soft(0.16f))
     }
 }
 
 // ── Customize board ──────────────────────────────────────────────────────────
 @Composable
-private fun ColumnScope.CustomizeBoard(order: MutableList<String>) {
+private fun ColumnScope.CustomizeBoard(
+    order: List<String>,
+    onMove: (key: String, offset: Int) -> Unit,
+    onRemove: (key: String) -> Unit,
+    onAdd: (key: String) -> Unit,
+    onReset: () -> Unit,
+) {
     val c = LocalTf.current
     ScrollScreen {
-        Overline("YOUR BLOCKS")
+        Overline(tr("today.customize.blocks"))
         Box(Modifier.padding(horizontal = 20.dp).offset(y = (-8).dp)) {
-            TfText("Reorder, remove, or add blocks. Your layout is saved on this device.", color = c.fg2, size = 13f, lineHeight = 1.5f)
+            TfText(tr("today.customize.description"), color = c.fg2, size = 13f, lineHeight = 1.5f)
         }
         order.toList().forEachIndexed { i, key ->
             val def = ALL_BLOCKS.first { it.key == key }
             InsetCard(pad = 12) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.size(8.dp).clip(CircleShape).background(c.named(def.color)))
-                    TfText(def.title, color = c.fg, size = 15f, weight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    IconButton("chevronUp", c.fg2) { if (i > 0) { val t = order[i]; order[i] = order[i - 1]; order[i - 1] = t } }
-                    IconButton("chevronDown", c.fg2) { if (i < order.size - 1) { val t = order[i]; order[i] = order[i + 1]; order[i + 1] = t } }
-                    IconButton("x", c.danger) { order.remove(key) }
+                    val title = tr(def.titleKey)
+                    TfText(title, color = c.fg, size = 15f, weight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    TfIconButton("chevronUp", tr("today.customize.move_up", title), onClick = {
+                        if (i > 0) onMove(key, -1)
+                    })
+                    TfIconButton("chevronDown", tr("today.customize.move_down", title), onClick = {
+                        if (i < order.size - 1) onMove(key, 1)
+                    })
+                    TfIconButton("x", tr("today.customize.remove", title), destructive = true, onClick = {
+                        onRemove(key)
+                    })
                 }
             }
         }
-        SectionTitle("Add blocks")
+        SectionTitle(tr("today.customize.add_blocks"))
         Column(Modifier.padding(horizontal = HPAD.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ALL_BLOCKS.filter { it.key !in order }.forEach { def ->
-                Card(Modifier.fillMaxWidth(), pad = 12, onClick = { order.add(def.key) }) {
+                Card(Modifier.fillMaxWidth(), pad = 12, onClick = {
+                    onAdd(def.key)
+                }) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(Modifier.size(8.dp).clip(CircleShape).background(c.named(def.color)))
-                        TfText(def.title, color = c.fg, size = 15f, modifier = Modifier.weight(1f))
+                        TfText(tr(def.titleKey), color = c.fg, size = 15f, modifier = Modifier.weight(1f))
                         TfIcon("plus", size = 18, color = c.accent)
                     }
                 }
             }
         }
         Box(Modifier.padding(horizontal = HPAD.dp, vertical = 4.dp)) {
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(0.5.dp, c.line, RoundedCornerShape(12.dp))
-                    .then(pressScale({ order.clear(); order.addAll(DEFAULT_ORDER) }, 0.98f)).padding(vertical = 13.dp),
-                horizontalArrangement = Arrangement.Center,
-            ) { TfText("Reset to default layout", color = c.fg2, size = 14f, weight = FontWeight.Medium) }
+            TfSecondaryButton(
+                label = tr("today.customize.reset"),
+                onClick = onReset,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
-}
-
-@Composable
-private fun IconButton(icon: String, color: Color, onClick: () -> Unit) {
-    val c = LocalTf.current
-    Box(
-        Modifier.size(32.dp).clip(RoundedCornerShape(9.dp)).background(c.card3).then(pressScale(onClick, 0.9f)),
-        contentAlignment = Alignment.Center,
-    ) { TfIcon(icon, size = 16, color = color) }
 }
 
 // ── Hub launcher screen (hub nav mode root) ──────────────────────────────────
@@ -524,13 +975,13 @@ fun HubScreen(onOpen: (String) -> Unit, onProfile: () -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Overline("BISMILLAH.")
+                Overline(tr("today.bismillah"))
                 TfText(greetingTitle(), color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.display, modifier = Modifier.padding(top = 3.dp))
             }
             UserAvatar(onClick = onProfile)
         }
         ScrollScreen {
-            ProactiveCard(TBRIEF.line, modifier = Modifier.padding(horizontal = HPAD.dp))
+            ProactiveCard(tr("today.ai.local_action_hint"), modifier = Modifier.padding(horizontal = HPAD.dp))
             HubLauncher(onOpen)
         }
     }

@@ -4,7 +4,7 @@ package com.example.tafakkurai.spiritual
  * Storage ports for the Qurʼan / dhikr / adhkar stores.
  *
  * The stores hold all the arithmetic — progress percentages, counter targets, streaks —
- * and talk to storage only through these four narrow interfaces. That keeps every rule
+ * and talk to storage only through narrow interfaces. That keeps every rule
  * unit-testable against [InMemorySpiritualPersistence] with no SQLite driver, while the
  * app runs on the SQLDelight implementations in `SqlSpiritualPersistence`.
  */
@@ -16,10 +16,31 @@ interface QuranPersistence {
     fun unmarkRead(surah: Int, ayah: Int)
 }
 
+/**
+ * Strict write scope used by Qurʼan progress in production.
+ *
+ * The read/settings ports above remain convenient for isolated tests. This scope exists
+ * because a meaningful Qurʼan action can touch both `quranRead` and `appPref`, and its
+ * ActivityEvent must be committed in that same database transaction rather than through
+ * two best-effort port calls.
+ */
+interface QuranWriteScope {
+    fun markRead(surah: Int, ayah: Int, at: Long)
+    fun unmarkRead(surah: Int, ayah: Int)
+    fun putPreference(key: String, value: String)
+    fun removePreference(key: String)
+}
+
+interface QuranWriteTransaction {
+    /** Returns false and rolls the whole write back when any statement or event append fails. */
+    fun commit(block: QuranWriteScope.() -> Unit): Boolean
+}
+
 /** Single-value settings: last-read position, selected qari, dhikr target. */
 interface PrefPersistence {
     fun get(key: String): String?
     fun put(key: String, value: String)
+    fun remove(key: String)
 }
 
 interface DhikrPersistence {
@@ -30,11 +51,33 @@ interface DhikrPersistence {
     fun dailyTotals(): List<Pair<String, Int>>
 }
 
+/** Strict production scope for a tasbih count and its related preferences. */
+interface DhikrWriteScope {
+    fun putCount(dateKey: String, dhikrId: String, total: Int)
+    fun putPreference(key: String, value: String)
+}
+
+interface DhikrWriteTransaction {
+    /** Returns false and rolls the source write back when an ActivityEvent append fails. */
+    fun commit(block: DhikrWriteScope.() -> Unit): Boolean
+}
+
 interface AdhkarPersistence {
     /** category → completed item ids for that day. */
     fun marksFor(dateKey: String): Map<String, Set<String>>
     fun mark(dateKey: String, category: String, itemId: String)
     fun unmark(dateKey: String, category: String, itemId: String)
+}
+
+/** Strict production scope for one morning/evening adhkar completion toggle. */
+interface AdhkarWriteScope {
+    fun mark(dateKey: String, category: String, itemId: String)
+    fun unmark(dateKey: String, category: String, itemId: String)
+}
+
+interface AdhkarWriteTransaction {
+    /** Returns false and rolls the source write back when an ActivityEvent append fails. */
+    fun commit(block: AdhkarWriteScope.() -> Unit): Boolean
 }
 
 // ── In-memory implementations (tests, previews, and a safe degraded mode) ─────
@@ -61,6 +104,10 @@ class InMemorySpiritualPersistence :
 
     override fun put(key: String, value: String) {
         prefs[key] = value
+    }
+
+    override fun remove(key: String) {
+        prefs.remove(key)
     }
 
     override fun countsFor(dateKey: String): Map<String, Int> = dhikr[dateKey].orEmpty().toMap()

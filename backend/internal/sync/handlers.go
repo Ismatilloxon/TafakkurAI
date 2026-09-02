@@ -34,12 +34,19 @@ type BatchRequest struct {
 	Events []Event `json:"events" validate:"required,min=1,max=100,dive"`
 }
 
+const maxBatchBodyBytes = int64(MaxBatchEvents * (MaxPayloadBytes + MaxMetadataBytes + 2048))
+
 func (h *Handler) batch(w http.ResponseWriter, r *http.Request) {
 	uid := platform.MustUserID(r.Context())
 	if h.limiter != nil && !h.limiter.Allow(uid.String()) {
 		platform.Error(w, http.StatusTooManyRequests, platform.CodeRateLimited, "too many sync requests")
 		return
 	}
+	if r.ContentLength > maxBatchBodyBytes {
+		platform.Error(w, http.StatusRequestEntityTooLarge, platform.CodePayloadTooLarge, "sync batch is too large")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBatchBodyBytes)
 
 	var in BatchRequest
 	if !platform.DecodeAndValidate(w, r, &in) {

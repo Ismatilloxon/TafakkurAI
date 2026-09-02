@@ -3,10 +3,17 @@ package com.example.tafakkurai.dhikr
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.example.tafakkurai.flashcards.epochMillis
 import com.example.tafakkurai.prayer.deviceDateKey
 import com.example.tafakkurai.spiritual.DhikrPersistence
+import com.example.tafakkurai.spiritual.DhikrWriteScope
+import com.example.tafakkurai.spiritual.DhikrWriteTransaction
 import com.example.tafakkurai.spiritual.PrefPersistence
 import com.example.tafakkurai.spiritual.streakLength
+import com.example.tafakkurai.sync.ActivityLog
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 data class Dhikr(
     val id: String,
@@ -38,12 +45,16 @@ class DhikrStore(
     private val storage: DhikrPersistence,
     private val prefs: PrefPersistence,
     private val todayKey: () -> String = ::deviceDateKey,
+    private val activity: ActivityLog? = null,
+    private val writes: DhikrWriteTransaction? = null,
+    private val now: () -> Long = ::epochMillis,
 ) {
     private var counts by mutableStateOf<Map<String, Int>>(emptyMap())
     private var loadedFor = ""
     private var selectedId by mutableStateOf(DHIKR_CATALOG.first().id)
     private var targetValue by mutableStateOf(DHIKR_CATALOG.first().defaultTarget)
     private var favourites by mutableStateOf<Set<String>>(emptySet())
+    private var lastActivityAt = 0L
 
     init { reload() }
 
@@ -97,41 +108,139 @@ class DhikrStore(
     /** +1 on the selected dhikr. Returns true when this tap *reached* the target. */
     fun increment(): Boolean {
         ensureToday()
-        val next = count + 1
-        write(selectedId, next)
+        val date = loadedFor
+        val dhikrId = selectedId
+        val next = countOf(dhikrId) + 1
+        val properties = buildJsonObject {
+            put("date", loadedFor)
+            put("dhikr_id", dhikrId)
+            put("total", next)
+            put("target", targetValue)
+        }
+        if (!commitActivity(
+                type = "dhikr_counted",
+                properties = properties,
+                entityId = "dhikr:$date:$dhikrId",
+                localDate = date,
+                strictWrite = { putCount(date, dhikrId, next) },
+                fallbackWrite = { storage.put(date, dhikrId, next) },
+            )
+        ) return false
+        counts = counts + (dhikrId to next)
         return targetValue > 0 && next == targetValue
     }
 
     /** Clears today's count for the selected dhikr only — other dhikr keep theirs. */
     fun reset() {
         ensureToday()
-        write(selectedId, 0)
+        val date = loadedFor
+        val dhikrId = selectedId
+        if (countOf(dhikrId) == 0) return
+        val properties = buildJsonObject {
+            put("date", date)
+            put("dhikr_id", dhikrId)
+            put("total", 0)
+        }
+        if (!commitActivity(
+                type = "dhikr_reset",
+                properties = properties,
+                entityId = "dhikr:$date:$dhikrId",
+                localDate = date,
+                strictWrite = { putCount(date, dhikrId, 0) },
+                fallbackWrite = { storage.put(date, dhikrId, 0) },
+            )
+        ) return
+        counts = counts + (dhikrId to 0)
     }
 
     fun select(id: String) {
         ensureToday()
         val dhikr = dhikrOf(id)
+        val nextTarget = dhikr.defaultTarget
+        if (selectedId == dhikr.id && targetValue == nextTarget) return
+        if (!commitSourceWrite(
+                strictWrite = {
+                    putPreference(KEY_SELECTED, dhikr.id)
+                    putPreference(KEY_TARGET, nextTarget.toString())
+                },
+                fallbackWrite = {
+                    prefs.put(KEY_SELECTED, dhikr.id)
+                    prefs.put(KEY_TARGET, nextTarget.toString())
+                },
+            )
+        ) return
         selectedId = dhikr.id
-        prefs.put(KEY_SELECTED, dhikr.id)
         // A fresh dhikr starts at its own sunnah target unless the user pinned one.
-        setTarget(dhikr.defaultTarget)
+        targetValue = nextTarget
     }
 
     fun setTarget(value: Int) {
-        if (value <= 0) return
+        if (value <= 0 || value == targetValue) return
+        if (!commitSourceWrite(
+                strictWrite = { putPreference(KEY_TARGET, value.toString()) },
+                fallbackWrite = { prefs.put(KEY_TARGET, value.toString()) },
+            )
+        ) return
         targetValue = value
-        prefs.put(KEY_TARGET, value.toString())
     }
 
     fun toggleFavourite(id: String) {
         val dhikr = dhikrOf(id)
-        favourites = if (dhikr.id in favourites) favourites - dhikr.id else favourites + dhikr.id
-        prefs.put(KEY_FAVOURITES, favourites.joinToString(","))
+        val updated = if (dhikr.id in favourites) favourites - dhikr.id else favourites + dhikr.id
+        val encoded = DHIKR_CATALOG.map { it.id }.filter { it in updated }.joinToString(",")
+        if (!commitSourceWrite(
+                strictWrite = { putPreference(KEY_FAVOURITES, encoded) },
+                fallbackWrite = { prefs.put(KEY_FAVOURITES, encoded) },
+            )
+        ) return
+        favourites = updated
     }
 
-    private fun write(id: String, value: Int) {
-        counts = counts + (id to value)
-        storage.put(loadedFor, id, value)
+    /**
+     * Production must have the strict SQL boundary whenever an ActivityLog is attached.
+     * Port-only constructions remain useful for tests and previews without durable activity.
+     */
+    private fun commitSourceWrite(
+        strictWrite: DhikrWriteScope.() -> Unit,
+        fallbackWrite: () -> Unit,
+    ): Boolean {
+        val transaction = writes
+        if (transaction != null) return transaction.commit(strictWrite)
+        if (activity != null) return false
+        return runCatching(fallbackWrite).isSuccess
+    }
+
+    private fun commitActivity(
+        type: String,
+        properties: JsonObject,
+        entityId: String,
+        localDate: String,
+        strictWrite: DhikrWriteScope.() -> Unit,
+        fallbackWrite: () -> Unit,
+    ): Boolean {
+        val transaction = writes
+        if (transaction != null) {
+            return transaction.commit {
+                strictWrite()
+                check(
+                    activity?.record(
+                        feature = "dhikr",
+                        type = type,
+                        properties = properties,
+                        entityId = entityId,
+                        occurredAtOverride = nextActivityTimestamp(),
+                        localDateOverride = localDate,
+                    ) ?: true,
+                ) { "Could not append dhikr ActivityEvent" }
+            }
+        }
+        if (activity != null) return false
+        return runCatching(fallbackWrite).isSuccess
+    }
+
+    /** Millisecond ties must never let an undo sort before the activity it compensates. */
+    private fun nextActivityTimestamp(): Long = maxOf(now(), lastActivityAt + 1L).also {
+        lastActivityAt = it
     }
 
     companion object {

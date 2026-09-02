@@ -57,7 +57,9 @@ type service struct {
 	now  func() time.Time
 }
 
-func NewService(repo *Repo) Service { return &service{repo: repo, now: func() time.Time { return time.Now().UTC() } } }
+func NewService(repo *Repo) Service {
+	return &service{repo: repo, now: func() time.Time { return time.Now().UTC() }}
+}
 
 func (s *service) Create(ctx context.Context, userID uuid.UUID, in NewEntry) (Entry, error) {
 	// The client owns the id; an entry saved offline keeps the same identity when

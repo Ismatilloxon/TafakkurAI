@@ -16,15 +16,19 @@ import com.example.tafakkurai.quran.AyahPrefetcher
 import com.example.tafakkurai.quran.DEFAULT_MUSHAF
 import com.example.tafakkurai.quran.MushafEdition
 import com.example.tafakkurai.quran.PrefetchState
+import com.example.tafakkurai.quran.PlaybackState
 import com.example.tafakkurai.quran.QuranProgressStore
 import com.example.tafakkurai.quran.QuranRepository
 import com.example.tafakkurai.quran.RepeatMode
+import com.example.tafakkurai.quran.SURAH_CATALOG
 import com.example.tafakkurai.quran.Surah
 import com.example.tafakkurai.quran.ayahCountOf
 import com.example.tafakkurai.quran.surahOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 // ── Home / setup ─────────────────────────────────────────────────────────────
@@ -53,6 +57,13 @@ class HifzViewModel(
         private set
 
     var rows by mutableStateOf<List<HifzSurahRow>>(emptyList())
+        private set
+
+    /** Complete 114-surah picker state. Filtering lives here, outside composition. */
+    var searchQuery by mutableStateOf("")
+        private set
+
+    var availableSurahs by mutableStateOf(SURAH_CATALOG)
         private set
 
     /** Today's session, recomputed whenever the screen is resumed. */
@@ -107,6 +118,11 @@ class HifzViewModel(
 
     /** Ayah count of a surah, so the setup screen can bound its range pickers. */
     fun ayahCount(surahNumber: Int): Int = ayahCountOf(surahNumber)
+
+    fun searchSurahs(query: String) {
+        searchQuery = query
+        availableSurahs = searchHifzSurahs(query)
+    }
 
     // ── Settings ─────────────────────────────────────────────────────────────
 
@@ -191,8 +207,9 @@ class HifzSessionViewModel(
     private var revealed by mutableStateOf(false)
     private var loading by mutableStateOf(true)
     private var counts by mutableStateOf<Map<Rating, Int>>(emptyMap())
-    private var reviewed by mutableStateOf(0)
+    private var reviewedCards by mutableStateOf<Set<String>>(emptySet())
     private var failure by mutableStateOf<String?>(null)
+    private var loadJob: Job? = null
 
     /** surahNumber → its ayahs, so a session inside one surah fetches once. */
     private val ayahsBySurah = mutableMapOf<Int, List<Ayah>>()
@@ -205,25 +222,42 @@ class HifzSessionViewModel(
         viewModelScope.launch {
             audio.state.collect { audioState -> publish(audio = audioState) }
         }
-        start()
     }
 
-    private fun start() {
+    /** Starts a fresh route-scoped session even though the activity-owned ViewModel is retained. */
+    fun beginSession() {
+        loadJob?.cancel()
+        audio.activate()
+        audio.stop()
         planner.reload()
         val plan = planner.plan()
         queue = plan.queue
         index = 0
         revealed = false
+        loading = true
         counts = emptyMap()
-        reviewed = 0
+        reviewedCards = emptySet()
+        failure = null
+        current = null
         audio.setRepeat(RepeatMode.AYAH, times = planner.repeatCount)
-        viewModelScope.launch { loadCurrent() }
+        publish()
+        loadJob = viewModelScope.launch { loadCurrent() }
+    }
+
+    /** Stops route-owned work and audio as soon as this custom navigation screen leaves. */
+    fun endSession() {
+        loadJob?.cancel()
+        loadJob = null
+        audio.stop()
+        audio.setRepeat(RepeatMode.OFF)
+        audio.deactivate()
     }
 
     /** Fetches whatever the current card needs to be drawn, then publishes it. */
     private suspend fun loadCurrent() {
         loading = true
         failure = null
+        publish()
         val card = queue.getOrNull(index)
         if (card == null) {
             current = null
@@ -231,10 +265,14 @@ class HifzSessionViewModel(
             publish()
             return
         }
-        val ayahs = ayahsBySurah[card.surah] ?: runCatching { repository.getAyahs(card.surah) }
-            .onFailure { failure = "Couldn't load this surah." }
-            .getOrDefault(emptyList())
-            .also { if (it.isNotEmpty()) ayahsBySurah[card.surah] = it }
+        val ayahs = ayahsBySurah[card.surah] ?: try {
+            repository.getAyahs(card.surah)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            failure = "hifz.review.load_failed"
+            emptyList()
+        }.also { if (it.isNotEmpty()) ayahsBySurah[card.surah] = it }
 
         current = HifzCardUi(
             card = card,
@@ -242,6 +280,7 @@ class HifzSessionViewModel(
             cue = ayahs.firstOrNull { it.number == card.ayah - 1 },
             ayah = ayahs.firstOrNull { it.number == card.ayah },
         )
+        if (current?.ayah == null) failure = "hifz.review.load_failed"
         audio.setQueue(ayahs, progress.reciter)
         loading = false
         publish()
@@ -254,7 +293,7 @@ class HifzSessionViewModel(
      * the planner is set to. Hearing it is part of the check, not a decoration.
      */
     fun reveal() {
-        if (revealed) return
+        if (revealed || loading || failure != null || current?.ayah == null) return
         revealed = true
         val card = current?.card
         if (planner.autoPlay && card != null) {
@@ -264,23 +303,46 @@ class HifzSessionViewModel(
         publish()
     }
 
-    fun playPause() = audio.togglePlayPause()
+    fun playPause() {
+        val card = current?.card ?: return
+        if (!revealed || loading || failure != null) return
+        val audioState = audio.state.value
+        if (audioState.playback == PlaybackState.IDLE ||
+            (audioState.playback == PlaybackState.PAUSED &&
+                audioState.durationMs > 0L && audioState.positionMs >= audioState.durationMs)
+        ) {
+            audio.stop()
+            audio.setRepeat(RepeatMode.AYAH, times = planner.repeatCount)
+            audio.playAyah(card.surah, card.ayah, basmala = false)
+        } else {
+            audio.togglePlayPause()
+        }
+    }
 
     fun seek(fraction: Float) = audio.seekToFraction(fraction)
 
     /** Replays the current ayah from the top — the "again, slower" button. */
     fun replay() {
-        val card = current?.card ?: return
+        val card = current?.card?.takeIf { revealed && !loading && failure == null } ?: return
         audio.stop()
         audio.setRepeat(RepeatMode.AYAH, times = planner.repeatCount)
         audio.playAyah(card.surah, card.ayah, basmala = false)
     }
 
     fun grade(rating: Rating) {
+        if (loading || !revealed || failure != null) return
         val card = current?.card ?: return
-        store.grade(card, rating)
+        loading = true
+        publish()
+        val graded = runCatching { store.grade(card, rating) }.isSuccess
+        if (!graded) {
+            loading = false
+            failure = "hifz.review.grade_failed"
+            publish()
+            return
+        }
         counts = counts + (rating to (counts[rating] ?: 0) + 1)
-        reviewed++
+        reviewedCards = reviewedCards + "${card.surah}:${card.ayah}"
         audio.stop()
         // Anki's rule, and the right one for hifz: an ayah you could not recall comes back
         // before the session ends rather than waiting for tomorrow.
@@ -289,7 +351,14 @@ class HifzSessionViewModel(
         }
         index++
         revealed = false
-        viewModelScope.launch { loadCurrent() }
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch { loadCurrent() }
+    }
+
+    fun retryLoad() {
+        if (loading) return
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch { loadCurrent() }
     }
 
     fun previewLabel(rating: Rating): String =
@@ -297,8 +366,7 @@ class HifzSessionViewModel(
 
     override fun onCleared() {
         // The player is an app-wide single — stop this session's playback, leave the player.
-        audio.stop()
-        audio.setRepeat(RepeatMode.OFF)
+        endSession()
         super.onCleared()
     }
 
@@ -312,10 +380,32 @@ class HifzSessionViewModel(
             finished = queue.isNotEmpty() && index >= queue.size,
             audio = audio,
             counts = counts,
-            reviewed = reviewed,
+            reviewed = reviewedCards.size,
             mushaf = progress.mushaf,
             showTranslation = progress.showTranslation,
             error = failure,
         )
     }
 }
+
+/** Matches every bundled surah by number, transliteration, meaning, or Arabic name. */
+internal fun searchHifzSurahs(
+    query: String,
+    catalog: List<Surah> = SURAH_CATALOG,
+): List<Surah> {
+    val term = query.trim()
+    if (term.isEmpty()) return catalog
+    if (term.all { it.isDigit() }) {
+        return catalog.filter { it.number.toString() == term }
+    }
+    val normalizedTerm = term.hifzSearchKey()
+    if (normalizedTerm.isEmpty()) return catalog
+    return catalog.filter { surah ->
+        surah.nameEnglish.hifzSearchKey().contains(normalizedTerm) ||
+            surah.nameTranslation.hifzSearchKey().contains(normalizedTerm) ||
+            surah.nameArabic.hifzSearchKey().contains(normalizedTerm)
+    }
+}
+
+private fun String.hifzSearchKey(): String =
+    lowercase().filter { it.isLetterOrDigit() }

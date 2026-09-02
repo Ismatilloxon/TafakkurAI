@@ -1,0 +1,60 @@
+-- v6 → v7: the generic sync platform replaces the per-entity outbox.
+--
+-- Mirrors SyncEvent.sq exactly so an upgrading install ends up with the schema a fresh
+-- install gets from Schema.create(). IF NOT EXISTS guards the dev case where a fresh
+-- install already created these.
+--
+-- NOTE ON DATA LOSS: the old `syncOp` queue is dropped rather than migrated. Its rows
+-- were payloads shaped for per-entity use-case calls (TrackPrayerUseCase and friends)
+-- that no longer exist, so there is nothing to translate them into. Anything a user had
+-- queued offline at upgrade time is lost from the QUEUE only — the local rows those ops
+-- described are still in their own tables, and the new engine's first pass re-emits
+-- events for them (see SyncSchema.backfill), so nothing the user did is actually lost.
+
+CREATE TABLE IF NOT EXISTS syncSession (
+    id       INTEGER NOT NULL PRIMARY KEY CHECK (id = 0),
+    userId   TEXT NOT NULL DEFAULT '',
+    timezone TEXT NOT NULL DEFAULT 'UTC',
+    capture  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS syncEvent (
+    id         TEXT NOT NULL PRIMARY KEY,
+    userId     TEXT NOT NULL,
+    feature    TEXT NOT NULL,
+    entity     TEXT NOT NULL,
+    entityId   TEXT NOT NULL,
+    operation  TEXT NOT NULL,
+    dedupeKey  TEXT NOT NULL,
+    payload    TEXT,
+    metadata   TEXT,
+    deviceTime INTEGER NOT NULL,
+    timezone   TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    retryCount INTEGER NOT NULL DEFAULT 0,
+    lastError  TEXT,
+    createdAt  INTEGER NOT NULL,
+    updatedAt  INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS syncEvent_dedupe ON syncEvent(dedupeKey) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS syncEvent_claim ON syncEvent(userId, status, createdAt);
+
+CREATE TABLE IF NOT EXISTS syncCursor (
+    userId   TEXT NOT NULL PRIMARY KEY,
+    cursor   INTEGER NOT NULL DEFAULT 0,
+    pulledAt INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS syncPolicy (
+    entity  TEXT NOT NULL PRIMARY KEY,
+    feature TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS syncMetric (
+    name  TEXT NOT NULL PRIMARY KEY,
+    value INTEGER NOT NULL DEFAULT 0
+);
+
+DROP TABLE IF EXISTS syncOp;

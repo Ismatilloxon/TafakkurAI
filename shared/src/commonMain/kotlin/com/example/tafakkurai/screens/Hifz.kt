@@ -3,25 +3,27 @@ package com.example.tafakkurai.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tafakkurai.flashcards.Rating
-import com.example.tafakkurai.quran.SURAH_CATALOG
+import com.example.tafakkurai.i18n.tr
 import com.example.tafakkurai.quran.Surah
 import com.example.tafakkurai.quran.hifz.HifzCardUi
 import com.example.tafakkurai.quran.hifz.HifzSessionUiState
@@ -29,6 +31,13 @@ import com.example.tafakkurai.quran.hifz.HifzSessionViewModel
 import com.example.tafakkurai.quran.hifz.HifzSurahRow
 import com.example.tafakkurai.quran.hifz.HifzViewModel
 import com.example.tafakkurai.ui.*
+import com.example.tafakkurai.ui.components.TfAddButton
+import com.example.tafakkurai.ui.components.TfConfirmationDialog
+import com.example.tafakkurai.ui.components.TfEmptyState
+import com.example.tafakkurai.ui.components.TfIconButton
+import com.example.tafakkurai.ui.components.TfPrimaryButton
+import com.example.tafakkurai.ui.components.TfSearchField
+import com.example.tafakkurai.ui.components.TfSettingsToggleRow
 import org.koin.mp.KoinPlatform.getKoin
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,61 +71,99 @@ fun HifzHomeScreen(
     LaunchedEffect(Unit) { vm.refresh() }
     val stats = vm.stats
     val plan = vm.plan
+    var pendingDrop by remember { mutableStateOf<HifzSurahRow?>(null) }
 
     Column(Modifier.fillMaxSize()) {
-        BackBar("Hifz · Yodlash", onBack)
-        ScrollBody {
-            if (!stats.hasCards) {
+        BackBar(tr("hifz.home.title"), onBack)
+        if (!stats.hasCards) {
+            ScrollBody {
                 EmptyHifz(onSetup)
-                return@ScrollBody
             }
-
-            TodayCard(
-                due = plan.review.size,
-                fresh = plan.fresh.size,
-                reciter = vm.reciterName,
-                onReview = onReview,
-            )
-
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(top = 14.dp, bottom = 116.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                StatTile("${stats.memorized}", "Memorized", c.green)
-                StatTile("${stats.total}", "Enrolled")
-                StatTile("${stats.streakDays}", "Day streak", c.warn)
-            }
-
-            if (stats.reviewedToday > 0) {
-                InsetCard(pad = 13) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        TfIcon("checkCircle", size = 16, color = c.green)
-                        TfText(
-                            "${stats.reviewedToday} reviewed today",
-                            color = c.fg2, size = 13.5f,
+                item(key = "today", contentType = "today") {
+                    TodayCard(
+                        due = plan.review.size,
+                        fresh = plan.fresh.size,
+                        reciter = vm.reciterName,
+                        onReview = onReview,
+                    )
+                }
+                item(key = "stats", contentType = "stats") {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        StatTile(stats.memorized.toString(), tr("hifz.home.stat.memorized"), c.green)
+                        StatTile(stats.total.toString(), tr("hifz.home.stat.enrolled"))
+                        StatTile(stats.streakDays.toString(), tr("hifz.home.stat.streak"), c.warn)
+                    }
+                }
+                if (stats.reviewedToday > 0) {
+                    item(key = "reviewed-today", contentType = "status") {
+                        InsetCard(pad = 13) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                            ) {
+                                TfIcon("checkCircle", size = 16, color = c.green)
+                                TfText(
+                                    tr("hifz.home.reviewed_today", stats.reviewedToday),
+                                    color = c.fg2,
+                                    size = 13.5f,
+                                )
+                            }
+                        }
+                    }
+                }
+                item(key = "surah-heading", contentType = "heading") {
+                    SectionTitle(tr("hifz.home.your_surahs"))
+                }
+                items(
+                    items = vm.rows,
+                    key = { it.surah.number },
+                    contentType = { "surah-progress" },
+                ) { row ->
+                    Box(Modifier.padding(horizontal = HPAD.dp)) {
+                        SurahHifzRow(
+                            row,
+                            onOpen = { onOpenSurah(row.surah.number) },
+                            onDrop = { pendingDrop = row },
                         )
                     }
                 }
-            }
-
-            SectionTitle("Your surahs")
-            Column(
-                Modifier.padding(horizontal = HPAD.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                vm.rows.forEach { row ->
-                    SurahHifzRow(
-                        row,
-                        onOpen = { onOpenSurah(row.surah.number) },
-                        onDrop = { vm.drop(row.surah.number) },
-                    )
+                item(key = "add", contentType = "action") {
+                    Box(Modifier.padding(horizontal = HPAD.dp)) {
+                        TfAddButton(tr("hifz.home.add_surah"), onSetup)
+                    }
                 }
-                AddDashed("Add a surah or range", onSetup)
+                item(key = "pace-heading", contentType = "heading") {
+                    SectionTitle(tr("hifz.home.pace"))
+                }
+                item(key = "pace", contentType = "settings") {
+                    PaceCard(vm)
+                }
             }
-
-            SectionTitle("Pace")
-            PaceCard(vm)
         }
+    }
+
+    pendingDrop?.let { row ->
+        TfConfirmationDialog(
+            title = tr("hifz.remove.title"),
+            message = tr("hifz.remove.message", row.surah.nameEnglish),
+            confirmLabel = tr("hifz.remove.confirm"),
+            cancelLabel = tr("common.cancel"),
+            destructive = true,
+            onConfirm = {
+                vm.drop(row.surah.number)
+                pendingDrop = null
+            },
+            onCancel = { pendingDrop = null },
+        )
     }
 }
 
@@ -127,19 +174,17 @@ private fun EmptyHifz(onSetup: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             BreathOrb(size = 56, color = c.gold, purple = c.accent)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Overline("HIFZ · YODLASH")
-                TfText("Start memorizing", color = c.fg, size = 16.5f, weight = FontWeight.SemiBold)
+                Overline(tr("hifz.home.empty.overline"))
+                TfText(tr("hifz.home.empty.title"), color = c.fg, size = 16.5f, weight = FontWeight.SemiBold)
             }
         }
         TfText(
-            "Choose a surah — or a run of ayahs inside one — and a pace you can keep. " +
-                "Each ayah comes back for review just before you'd forget it, and its recitation " +
-                "downloads so a session works with no connection.",
+            tr("hifz.home.empty.detail"),
             color = c.fg2, size = 13.5f, lineHeight = 1.55f, modifier = Modifier.padding(top = 12.dp),
         )
     }
     Box(Modifier.padding(horizontal = HPAD.dp)) {
-        PrimaryButton("Choose a surah", onClick = onSetup)
+        TfPrimaryButton(tr("hifz.home.empty.action"), onClick = onSetup, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -147,26 +192,30 @@ private fun EmptyHifz(onSetup: () -> Unit) {
 private fun TodayCard(due: Int, fresh: Int, reciter: String, onReview: () -> Unit) {
     val c = LocalTf.current
     InsetCard {
-        Overline("TODAY")
+        Overline(tr("hifz.home.today"))
         Row(
             Modifier.padding(top = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Pill("$due to review", c.accent, c.accent.soft(0.16f))
-            Pill("$fresh new", c.gold, c.gold.soft(0.16f))
+            Pill(tr("hifz.home.due", due), c.accent, c.accent.soft(0.16f))
+            Pill(tr("hifz.home.fresh", fresh), c.gold, c.gold.soft(0.16f))
         }
         TfText(
             if (due + fresh == 0) {
-                "Nothing due. Everything you've taken on is resting — the next review lands when it lands."
+                tr("hifz.home.resting")
             } else {
-                "Reviews first, then new ayahs. In $reciter's voice."
+                tr("hifz.home.ready", reciter)
             },
             color = c.fg2, size = 13.5f, lineHeight = 1.5f, modifier = Modifier.padding(top = 11.dp),
         )
         if (due + fresh > 0) {
             Box(Modifier.padding(top = 13.dp)) {
-                PrimaryButton("Start · ${due + fresh} ayahs", onClick = onReview)
+                TfPrimaryButton(
+                    tr("hifz.home.start", due + fresh),
+                    onClick = onReview,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -176,7 +225,7 @@ private fun TodayCard(due: Int, fresh: Int, reciter: String, onReview: () -> Uni
 private fun SurahHifzRow(row: HifzSurahRow, onOpen: () -> Unit, onDrop: () -> Unit) {
     val c = LocalTf.current
     val p = row.progress
-    // The row opens the surah in the reader; the x is the only part that doesn't.
+    // The row opens the surah in the reader; the remove action is the only part that doesn't.
     Card(Modifier.fillMaxWidth(), onClick = onOpen) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
             Box(
@@ -188,10 +237,10 @@ private fun SurahHifzRow(row: HifzSurahRow, onOpen: () -> Unit, onDrop: () -> Un
                     TfText(row.surah.nameEnglish, color = c.fg, size = 15.5f, weight = FontWeight.SemiBold)
                     TfText(row.surah.nameArabic, color = c.fg3, size = 13f, family = Fonts.serif)
                     Spacer(Modifier.weight(1f))
-                    if (p.due > 0) Pill("${p.due} due", c.accent, c.accent.soft(0.14f))
+                    if (p.due > 0) Pill(tr("hifz.row.due", p.due), c.accent, c.accent.soft(0.14f))
                 }
                 TfText(
-                    "${p.memorized} of ${p.total} memorized",
+                    tr("hifz.row.memorized", p.memorized, p.total),
                     color = c.fg2, size = 12.5f,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -199,7 +248,12 @@ private fun SurahHifzRow(row: HifzSurahRow, onOpen: () -> Unit, onDrop: () -> Un
                     TfText("${p.percent}%", color = c.fg2, size = 11.5f, family = Fonts.mono)
                 }
             }
-            Box(pressScale(onDrop, 0.85f)) { TfIcon("x", size = 16, color = c.fg3) }
+            TfIconButton(
+                icon = "trash",
+                contentDescription = tr("hifz.row.remove_a11y", row.surah.nameEnglish),
+                onClick = onDrop,
+                destructive = true,
+            )
         }
     }
 }
@@ -209,25 +263,32 @@ private fun PaceCard(vm: HifzViewModel) {
     val c = LocalTf.current
     InsetCard {
         Stepper(
-            label = "New ayahs per day",
-            hint = "Intake waits when the review load is already at its cap.",
+            label = tr("hifz.pace.daily_new.label"),
+            hint = tr("hifz.pace.daily_new.hint"),
             value = vm.planner.dailyNew,
             onChange = vm::setDailyNew,
         )
         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp).height(0.5.dp).background(c.line))
         Stepper(
-            label = "Reviews per session",
-            hint = "A ceiling, so a backlog after a missed week still opens.",
+            label = tr("hifz.pace.review_cap.label"),
+            hint = tr("hifz.pace.review_cap.hint"),
             value = vm.planner.reviewCap,
             step = 5,
             onChange = vm::setReviewCap,
         )
         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp).height(0.5.dp).background(c.line))
         Stepper(
-            label = "Repeats per ayah",
-            hint = "How many times the recitation loops when you reveal an ayah.",
+            label = tr("hifz.pace.repeat.label"),
+            hint = tr("hifz.pace.repeat.hint"),
             value = vm.planner.repeatCount,
             onChange = vm::setRepeatCount,
+        )
+        Box(Modifier.fillMaxWidth().padding(vertical = 12.dp).height(0.5.dp).background(c.line))
+        TfSettingsToggleRow(
+            title = tr("hifz.pace.autoplay.label"),
+            detail = tr("hifz.pace.autoplay.hint"),
+            checked = vm.planner.autoPlay,
+            onCheckedChange = vm::setAutoPlay,
         )
     }
 }
@@ -247,21 +308,19 @@ private fun Stepper(
             TfText(hint, color = c.fg3, size = 11.5f, lineHeight = 1.4f)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StepButton("chevronDown") { onChange(value - step) }
+            TfIconButton(
+                icon = "chevronDown",
+                contentDescription = tr("hifz.pace.decrease_a11y", label),
+                onClick = { onChange(value - step) },
+            )
             TfText("$value", color = c.fg, size = 16f, family = Fonts.mono)
-            StepButton("chevronUp") { onChange(value + step) }
+            TfIconButton(
+                icon = "chevronUp",
+                contentDescription = tr("hifz.pace.increase_a11y", label),
+                onClick = { onChange(value + step) },
+            )
         }
     }
-}
-
-@Composable
-private fun StepButton(icon: String, onClick: () -> Unit) {
-    val c = LocalTf.current
-    Box(
-        Modifier.size(30.dp).clip(CircleShape).background(c.card2)
-            .border(0.5.dp, c.line, CircleShape).then(pressScale(onClick, 0.88f)),
-        contentAlignment = Alignment.Center,
-    ) { TfIcon(icon, size = 14, color = c.fg2) }
 }
 
 // ── Setup ────────────────────────────────────────────────────────────────────
@@ -270,65 +329,81 @@ private fun StepButton(icon: String, onClick: () -> Unit) {
 fun HifzSetupScreen(onBack: () -> Unit, onDone: () -> Unit) {
     val c = LocalTf.current
     val vm = hifzViewModel()
-    var query by remember { mutableStateOf("") }
     var picked by remember { mutableStateOf<Surah?>(null) }
     var from by remember { mutableStateOf(1) }
     var to by remember { mutableStateOf(1) }
 
-    val matches = remember(query) {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) SURAH_CATALOG
-        else SURAH_CATALOG.filter {
-            it.nameEnglish.lowercase().contains(q) ||
-                it.nameTranslation.lowercase().contains(q) ||
-                it.number.toString() == q
-        }
-    }
+    // A retained ViewModel may remember the previous visit's filter. Each fresh entry starts
+    // from the complete mushaf index so no surah is accidentally hidden behind old text.
+    LaunchedEffect(vm) { vm.searchSurahs("") }
 
     Column(Modifier.fillMaxSize()) {
-        BackBar("Add to hifz", onBack)
-        ScrollBody {
-            val surah = picked
-            if (surah == null) {
-                InsetCard(pad = 13) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        TfIcon("search", size = 16, color = c.fg3)
-                        Box(Modifier.weight(1f)) {
-                            if (query.isEmpty()) TfText("Search surah…", color = c.fg3, size = 15f)
-                            BasicTextField(
-                                value = query, onValueChange = { query = it }, singleLine = true,
-                                textStyle = TextStyle(color = c.fg, fontSize = 15.sp, fontFamily = Fonts.sans),
-                                cursorBrush = SolidColor(c.accent), modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
+        BackBar(tr("hifz.setup.title"), onBack)
+        val surah = picked
+        if (surah == null) {
+            val matches = vm.availableSurahs
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(top = 14.dp, bottom = 116.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "search", contentType = "search") {
+                    TfSearchField(
+                        query = vm.searchQuery,
+                        onQuery = vm::searchSurahs,
+                        placeholder = tr("hifz.setup.search_hint"),
+                        searchContentDescription = tr("hifz.setup.search_a11y"),
+                        clearContentDescription = tr("hifz.setup.clear_search_a11y"),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = HPAD.dp),
+                    )
+                }
+                item(key = "count", contentType = "heading") {
+                    SectionTitle(
+                        if (vm.searchQuery.isBlank()) {
+                            tr("hifz.setup.surahs_count", matches.size)
+                        } else {
+                            tr("hifz.setup.matches_count", matches.size)
+                        },
+                    )
+                }
+                if (matches.isEmpty()) {
+                    item(key = "no-match", contentType = "empty") {
+                        TfEmptyState(tr("hifz.setup.no_matches", vm.searchQuery))
                     }
                 }
-                Column(
-                    Modifier.padding(horizontal = HPAD.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    matches.take(SURAH_PICKER_LIMIT).forEach { s ->
-                        SurahPickRow(s) {
-                            picked = s
+                items(
+                    items = matches,
+                    key = { it.number },
+                    contentType = { "surah" },
+                ) { match ->
+                    Box(Modifier.padding(horizontal = HPAD.dp)) {
+                        SurahPickRow(match) {
+                            picked = match
                             from = 1
-                            to = s.ayahCount
+                            to = match.ayahCount
                         }
                     }
-                    if (matches.size > SURAH_PICKER_LIMIT) {
-                        TfText(
-                            "${matches.size - SURAH_PICKER_LIMIT} more — keep typing to narrow it down.",
-                            color = c.fg3, size = 12.5f, modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
                 }
-            } else {
+            }
+        } else {
+            ScrollBody {
                 val count = vm.ayahCount(surah.number)
                 InsetCard {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             TfText(surah.nameEnglish, color = c.fg, size = 18f, weight = FontWeight.SemiBold)
                             TfText(
-                                "${surah.nameTranslation} · $count ayahs",
+                                tr(
+                                    "hifz.setup.surah_meta",
+                                    count,
+                                    tr(
+                                        if (surah.revelationType.name == "MECCAN") {
+                                            "quran.surah.meccan"
+                                        } else {
+                                            "quran.surah.medinan"
+                                        },
+                                    ),
+                                ),
                                 color = c.fg2, size = 12.5f,
                             )
                         }
@@ -336,15 +411,15 @@ fun HifzSetupScreen(onBack: () -> Unit, onDone: () -> Unit) {
                     }
                     Box(Modifier.fillMaxWidth().padding(vertical = 14.dp).height(0.5.dp).background(c.line))
                     Stepper(
-                        label = "From ayah",
-                        hint = "Where the run starts.",
+                        label = tr("hifz.setup.from_ayah"),
+                        hint = tr("hifz.setup.from_hint"),
                         value = from,
                         onChange = { from = it.coerceIn(1, count) },
                     )
                     Box(Modifier.padding(top = 12.dp)) {
                         Stepper(
-                            label = "To ayah",
-                            hint = "Where it ends. The whole surah by default.",
+                            label = tr("hifz.setup.to_ayah"),
+                            hint = tr("hifz.setup.to_hint"),
                             value = to,
                             onChange = { to = it.coerceIn(1, count) },
                         )
@@ -353,13 +428,16 @@ fun HifzSetupScreen(onBack: () -> Unit, onDone: () -> Unit) {
                 val span = (maxOf(from, to) - minOf(from, to) + 1)
                 InsetCard(pad = 13) {
                     TfText(
-                        "$span ${if (span == 1) "ayah" else "ayahs"} · about " +
-                            "${daysFor(span, vm.planner.dailyNew)} at ${vm.planner.dailyNew} a day",
+                        tr(
+                            "hifz.setup.range_summary",
+                            span,
+                            durationFor(span, vm.planner.dailyNew),
+                            vm.planner.dailyNew,
+                        ),
                         color = c.fg, size = 14f, weight = FontWeight.Medium,
                     )
                     TfText(
-                        "Ayahs already under memorization keep their schedule — adding an " +
-                            "overlapping range never resets progress.",
+                        tr("hifz.setup.overlap_hint"),
                         color = c.fg3, size = 12f, lineHeight = 1.45f, modifier = Modifier.padding(top = 4.dp),
                     )
                 }
@@ -367,17 +445,24 @@ fun HifzSetupScreen(onBack: () -> Unit, onDone: () -> Unit) {
                     Modifier.padding(horizontal = HPAD.dp),
                     verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
-                    PrimaryButton("Add to hifz") {
+                    TfPrimaryButton(tr("hifz.setup.add_action"), modifier = Modifier.fillMaxWidth(), onClick = {
                         vm.enrol(surah.number, from, to)
                         onDone()
-                    }
+                    })
                     Box(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
                             .border(0.5.dp, c.line, RoundedCornerShape(12.dp))
                             .then(pressScale({ picked = null }, 0.98f))
                             .padding(vertical = 13.dp),
                         contentAlignment = Alignment.Center,
-                    ) { TfText("Choose a different surah", color = c.fg2, size = 14f, weight = FontWeight.Medium) }
+                    ) {
+                        TfText(
+                            tr("hifz.setup.choose_different"),
+                            color = c.fg2,
+                            size = 14f,
+                            weight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
         }
@@ -395,7 +480,21 @@ private fun SurahPickRow(s: Surah, onClick: () -> Unit) {
             ) { TfText("${s.number}", color = c.fg3, size = 12.5f, family = Fonts.mono) }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 TfText(s.nameEnglish, color = c.fg, size = 15f, weight = FontWeight.Medium)
-                TfText("${s.nameTranslation} · ${s.ayahCount} ayahs", color = c.fg3, size = 11.5f)
+                TfText(
+                    tr(
+                        "hifz.setup.surah_meta",
+                        s.ayahCount,
+                        tr(
+                            if (s.revelationType.name == "MECCAN") {
+                                "quran.surah.meccan"
+                            } else {
+                                "quran.surah.medinan"
+                            },
+                        ),
+                    ),
+                    color = c.fg3,
+                    size = 11.5f,
+                )
             }
             TfText(s.nameArabic, color = c.gold, size = 17f, family = Fonts.serif)
         }
@@ -403,17 +502,16 @@ private fun SurahPickRow(s: Surah, onClick: () -> Unit) {
 }
 
 /** Rough calendar span for a run at a given daily intake — a sentence, not a promise. */
-private fun daysFor(ayahs: Int, perDay: Int): String {
+@Composable
+private fun durationFor(ayahs: Int, perDay: Int): String {
     val days = if (perDay <= 0) ayahs else (ayahs + perDay - 1) / perDay
     return when {
-        days <= 1 -> "a day"
-        days < 14 -> "$days days"
-        days < 60 -> "${(days + 3) / 7} weeks"
-        else -> "${(days + 15) / 30} months"
+        days <= 1 -> tr("hifz.setup.duration.day")
+        days < 14 -> tr("hifz.setup.duration.days", days)
+        days < 60 -> tr("hifz.setup.duration.weeks", (days + 3) / 7)
+        else -> tr("hifz.setup.duration.months", (days + 15) / 30)
     }
 }
-
-private const val SURAH_PICKER_LIMIT = 30
 
 // ── Review session ───────────────────────────────────────────────────────────
 
@@ -425,10 +523,14 @@ fun HifzReviewScreen(onBack: () -> Unit) {
             getKoin().get(), getKoin().get(), getKoin().get(),
         )
     }
+    DisposableEffect(vm) {
+        vm.beginSession()
+        onDispose { vm.endSession() }
+    }
     val state by vm.state.collectAsState()
 
     Column(Modifier.fillMaxSize()) {
-        BackBar("Hifz review", onBack)
+        BackBar(tr("hifz.review.title"), onBack)
         when {
             state.total == 0 && !state.isLoading -> NothingDue(onBack)
             state.finished -> SessionResult(state, onBack)
@@ -442,14 +544,15 @@ private fun ColumnScope.NothingDue(onBack: () -> Unit) {
     val c = LocalTf.current
     ScrollBody {
         InsetCard {
-            TfText("Nothing due right now", color = c.fg, size = 16f, weight = FontWeight.SemiBold)
+            TfText(tr("hifz.review.empty.title"), color = c.fg, size = 16f, weight = FontWeight.SemiBold)
             TfText(
-                "Every ayah you've taken on is still resting. Coming back early doesn't help it " +
-                    "stick — the schedule is what does the work.",
+                tr("hifz.review.empty.detail"),
                 color = c.fg2, size = 13.5f, lineHeight = 1.55f, modifier = Modifier.padding(top = 4.dp),
             )
         }
-        Box(Modifier.padding(horizontal = HPAD.dp)) { PrimaryButton("Back", onClick = onBack) }
+        Box(Modifier.padding(horizontal = HPAD.dp)) {
+            TfPrimaryButton(tr("hifz.review.back"), onClick = onBack, modifier = Modifier.fillMaxWidth())
+        }
     }
 }
 
@@ -476,13 +579,13 @@ private fun ColumnScope.ReviewBody(state: HifzSessionUiState, vm: HifzSessionVie
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (card == null) {
-                TfText("Loading…", color = c.fg3, size = 14f, modifier = Modifier.padding(top = 40.dp))
+                TfText(tr("hifz.review.loading"), color = c.fg3, size = 14f, modifier = Modifier.padding(top = 40.dp))
             } else {
                 PromptCard(card, state)
                 if (state.revealed) AnswerCard(card, state, vm)
             }
-            if (state.error != null) {
-                TfText(state.error, color = c.danger, size = 13f)
+            state.error?.let { errorKey ->
+                TfText(tr(errorKey), color = c.danger, size = 13f)
             }
         }
 
@@ -490,13 +593,35 @@ private fun ColumnScope.ReviewBody(state: HifzSessionUiState, vm: HifzSessionVie
             Modifier.fillMaxWidth().padding(vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (state.revealed) {
-                GradeBtn("Again", vm.previewLabel(Rating.AGAIN), c.danger, Modifier.weight(1f)) { vm.grade(Rating.AGAIN) }
-                GradeBtn("Hard", vm.previewLabel(Rating.HARD), c.warn, Modifier.weight(1f)) { vm.grade(Rating.HARD) }
-                GradeBtn("Good", vm.previewLabel(Rating.GOOD), c.green, Modifier.weight(1f)) { vm.grade(Rating.GOOD) }
-                GradeBtn("Easy", vm.previewLabel(Rating.EASY), c.cyan, Modifier.weight(1f)) { vm.grade(Rating.EASY) }
+            if (state.isLoading) {
+                TfText(
+                    tr("hifz.review.loading"),
+                    color = c.fg3,
+                    size = 13f,
+                    modifier = Modifier.weight(1f),
+                    align = TextAlign.Center,
+                )
+            } else if (state.error != null) {
+                Box(Modifier.weight(1f)) {
+                    TfPrimaryButton(
+                        tr("common.retry"),
+                        onClick = vm::retryLoad,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            } else if (state.revealed) {
+                GradeBtn(tr("hifz.grade.again"), localizedInterval(vm.previewLabel(Rating.AGAIN)), c.danger, Modifier.weight(1f)) { vm.grade(Rating.AGAIN) }
+                GradeBtn(tr("hifz.grade.hard"), localizedInterval(vm.previewLabel(Rating.HARD)), c.warn, Modifier.weight(1f)) { vm.grade(Rating.HARD) }
+                GradeBtn(tr("hifz.grade.good"), localizedInterval(vm.previewLabel(Rating.GOOD)), c.green, Modifier.weight(1f)) { vm.grade(Rating.GOOD) }
+                GradeBtn(tr("hifz.grade.easy"), localizedInterval(vm.previewLabel(Rating.EASY)), c.cyan, Modifier.weight(1f)) { vm.grade(Rating.EASY) }
             } else {
-                Box(Modifier.weight(1f)) { PrimaryButton("Reveal the ayah") { vm.reveal() } }
+                Box(Modifier.weight(1f)) {
+                    TfPrimaryButton(
+                        tr("hifz.review.reveal"),
+                        onClick = vm::reveal,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }
@@ -515,24 +640,28 @@ private fun PromptCard(card: HifzCardUi, state: HifzSessionUiState) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Overline("RECITE")
+            Overline(tr("hifz.review.recite"))
             Spacer(Modifier.weight(1f))
-            if (card.card.state == 0) Pill("new", c.gold, c.gold.soft(0.16f))
+            if (card.card.state == 0) Pill(tr("hifz.review.new"), c.gold, c.gold.soft(0.16f))
         }
         TfText(
-            "${card.surah?.nameEnglish ?: "Surah ${card.card.surah}"} · ayah ${card.card.ayah}",
+            tr(
+                "hifz.review.reference",
+                card.surah?.nameEnglish ?: tr("hifz.review.surah_number", card.card.surah),
+                card.card.ayah,
+            ),
             color = c.fg, size = 20f, family = Fonts.serif, lineHeight = 1.25f,
         )
 
         when {
             card.isFirstOfSurah -> TfText(
-                "The opening ayah of the surah.",
+                tr("hifz.review.opening"),
                 color = c.fg3, size = 13f, modifier = Modifier.padding(top = 2.dp),
             )
             card.cue?.hasText == true -> {
                 Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Overline("THE AYAH BEFORE")
+                        Overline(tr("hifz.review.cue"))
                         TfText(
                             card.cue.arabicText!!,
                             color = c.fg2, size = 19f, family = Fonts.serif,
@@ -543,14 +672,14 @@ private fun PromptCard(card: HifzCardUi, state: HifzSessionUiState) {
                 }
             }
             else -> TfText(
-                "The preceding ayah hasn't been downloaded — recite from the reference alone.",
+                tr("hifz.review.cue_missing"),
                 color = c.fg3, size = 12.5f, lineHeight = 1.45f, modifier = Modifier.padding(top = 2.dp),
             )
         }
 
         if (!state.revealed) {
             TfText(
-                "Recite it from memory, then reveal.",
+                tr("hifz.review.instruction"),
                 color = c.fg3, size = 12.5f, modifier = Modifier.padding(top = 6.dp),
             )
         }
@@ -562,12 +691,15 @@ private fun PromptCard(card: HifzCardUi, state: HifzSessionUiState) {
 private fun AnswerCard(card: HifzCardUi, state: HifzSessionUiState, vm: HifzSessionViewModel) {
     val c = LocalTf.current
     val ayah = card.ayah
+    val playPauseA11y = tr(
+        if (state.audio.isPlaying) "hifz.review.pause_a11y" else "hifz.review.play_a11y",
+    )
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(c.gold.soft(0.07f))
             .border(0.5.dp, c.gold.soft(0.35f), RoundedCornerShape(18.dp)).padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Overline("AYAH ${card.card.ayah}")
+        Overline(tr("hifz.review.ayah_heading", card.card.ayah))
         if (ayah?.hasText == true) {
             TfText(
                 ayah.arabicText!!,
@@ -579,9 +711,9 @@ private fun AnswerCard(card: HifzCardUi, state: HifzSessionUiState, vm: HifzSess
                 TfText(ayah.translation, color = c.fg2, size = 14f, lineHeight = 1.6f)
             }
         } else {
-            TfText("Text not downloaded", color = c.fg3, size = 13.5f)
+            TfText(tr("hifz.review.text_unavailable"), color = c.fg3, size = 13.5f)
             TfText(
-                "The recitation still plays — this ayah's text isn't available offline yet.",
+                tr("hifz.review.text_unavailable_detail"),
                 color = c.fg3, size = 12f, lineHeight = 1.45f,
             )
         }
@@ -593,41 +725,61 @@ private fun AnswerCard(card: HifzCardUi, state: HifzSessionUiState, vm: HifzSess
             modifier = Modifier.padding(top = 2.dp),
         ) {
             Box(
-                Modifier.size(42.dp).clip(CircleShape).background(c.gold)
-                    .then(pressScale({ vm.playPause() }, 0.9f)),
+                Modifier.size(44.dp).clip(CircleShape).background(c.gold)
+                    .then(pressScale({ vm.playPause() }, 0.9f))
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = playPauseA11y
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 TfIcon(if (state.audio.isPlaying) "pause" else "play", size = 18, color = Color.White)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 TfText(
-                    if (state.audio.isLoading) "Loading recitation…"
-                    else "Repeat ${(state.audio.repeatLap + 1).coerceAtMost(state.audio.repeatTarget)} of ${state.audio.repeatTarget}",
+                    if (state.audio.isLoading) tr("hifz.review.audio_loading")
+                    else tr(
+                        "hifz.review.repeat_progress",
+                        (state.audio.repeatLap + 1).coerceAtMost(state.audio.repeatTarget),
+                        state.audio.repeatTarget,
+                    ),
                     color = c.fg2, size = 12.5f, family = Fonts.mono,
                 )
                 ProgressBar(state.audio.progress, c.gold, height = 3, modifier = Modifier.fillMaxWidth())
             }
-            Box(pressScale({ vm.replay() }, 0.88f)) {
-                TfIcon("repeat", size = 18, color = c.fg2)
-            }
+            TfIconButton(
+                icon = "repeat",
+                contentDescription = tr("hifz.review.replay_a11y"),
+                onClick = vm::replay,
+            )
         }
         if (state.audio.error != null) {
-            TfText(state.audio.error, color = c.danger, size = 12f)
+            TfText(tr("hifz.review.audio_failed"), color = c.danger, size = 12f)
         }
     }
 }
 
 @Composable
 private fun GradeBtn(label: String, interval: String, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    val a11y = tr("hifz.grade.a11y", label, interval)
     Column(
         modifier.clip(RoundedCornerShape(12.dp)).background(color.soft(0.16f))
             .border(0.5.dp, color.soft(0.4f), RoundedCornerShape(12.dp))
-            .then(pressScale(onClick, 0.94f)).padding(vertical = 10.dp),
+            .then(pressScale(onClick, 0.94f))
+            .semantics { role = Role.Button; contentDescription = a11y }
+            .padding(vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         TfText(label, color = color, size = 13.5f, weight = FontWeight.SemiBold)
         TfText(interval, color = color, size = 10.5f, family = Fonts.mono, modifier = Modifier.padding(top = 1.dp))
     }
+}
+
+@Composable
+private fun localizedInterval(raw: String): String {
+    val unit = listOf("mo", "m", "h", "d", "y").firstOrNull { raw.endsWith(it) } ?: return raw
+    val value = raw.removeSuffix(unit).toLongOrNull() ?: return raw
+    return tr("hifz.interval.$unit", value)
 }
 
 @Composable
@@ -641,24 +793,28 @@ private fun ColumnScope.SessionResult(state: HifzSessionUiState, onBack: () -> U
         ) {
             BreathOrb(size = 96, color = c.gold, purple = c.accent)
             TfText(
-                "${state.reviewed} ${if (state.reviewed == 1) "ayah" else "ayahs"} reviewed",
+                tr(
+                    if (state.reviewed == 1) "hifz.result.reviewed_one" else "hifz.result.reviewed_many",
+                    state.reviewed,
+                ),
                 color = c.fg, size = 24f, weight = FontWeight.Bold, family = Fonts.display,
             )
         }
         InsetCard {
-            Overline("SESSION")
+            Overline(tr("hifz.result.session"))
             Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill("Again ${state.counts[Rating.AGAIN] ?: 0}", c.danger, c.danger.soft(0.14f))
-                Pill("Hard ${state.counts[Rating.HARD] ?: 0}", c.warn, c.warn.soft(0.14f))
-                Pill("Good ${state.counts[Rating.GOOD] ?: 0}", c.green, c.green.soft(0.14f))
-                Pill("Easy ${state.counts[Rating.EASY] ?: 0}", c.cyan, c.cyan.soft(0.14f))
+                Pill(tr("hifz.result.again", state.counts[Rating.AGAIN] ?: 0), c.danger, c.danger.soft(0.14f))
+                Pill(tr("hifz.result.hard", state.counts[Rating.HARD] ?: 0), c.warn, c.warn.soft(0.14f))
+                Pill(tr("hifz.result.good", state.counts[Rating.GOOD] ?: 0), c.green, c.green.soft(0.14f))
+                Pill(tr("hifz.result.easy", state.counts[Rating.EASY] ?: 0), c.cyan, c.cyan.soft(0.14f))
             }
             TfText(
-                "Each ayah is scheduled for the day you'd be about to forget it. Anything you " +
-                    "rated Again came round a second time before the session ended.",
+                tr("hifz.result.detail"),
                 color = c.fg2, size = 13.5f, lineHeight = 1.5f, modifier = Modifier.padding(top = 12.dp),
             )
         }
-        Box(Modifier.padding(horizontal = HPAD.dp)) { PrimaryButton("Done", onClick = onBack) }
+        Box(Modifier.padding(horizontal = HPAD.dp)) {
+            TfPrimaryButton(tr("common.done"), onClick = onBack, modifier = Modifier.fillMaxWidth())
+        }
     }
 }

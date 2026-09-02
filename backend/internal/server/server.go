@@ -14,10 +14,12 @@ import (
 	"github.com/tafakkur/backend/internal/config"
 	"github.com/tafakkur/backend/internal/feed"
 	"github.com/tafakkur/backend/internal/gratitude"
+	"github.com/tafakkur/backend/internal/habits"
 	"github.com/tafakkur/backend/internal/learn"
 	"github.com/tafakkur/backend/internal/platform"
 	"github.com/tafakkur/backend/internal/prayer"
 	"github.com/tafakkur/backend/internal/quran"
+	"github.com/tafakkur/backend/internal/sleep"
 	syncsvc "github.com/tafakkur/backend/internal/sync"
 	"github.com/tafakkur/backend/internal/tracker"
 	"github.com/tafakkur/backend/internal/user"
@@ -36,8 +38,10 @@ type Deps struct {
 	Feed      *feed.Handler
 	Learn     *learn.Handler
 	Gratitude *gratitude.Handler
+	Habits    *habits.Handler
 	Tracker   *tracker.Handler
 	Quran     *quran.Handler
+	Sleep     *sleep.Handler
 
 	// Sync is the generic event-sync platform. Every feature synchronises through
 	// it, so this is the one handler that never gains a sibling when a feature ships.
@@ -90,7 +94,11 @@ func NewRouter(d Deps) http.Handler {
 			d.Learn.Register(pr)
 			d.Tracker.Register(pr)
 			d.Gratitude.Register(pr)
+			d.Habits.Register(pr)
 			d.Quran.Register(pr)
+			if d.Sleep != nil {
+				d.Sleep.Register(pr)
+			}
 			if d.Sync != nil {
 				d.Sync.Register(pr)
 			}

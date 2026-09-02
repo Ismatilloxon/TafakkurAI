@@ -71,7 +71,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8BA0433AF693860EB1BDECC3 /* Build configuration list for PBXNativeTarget "iosApp" */;
 			buildPhases = (
-				D66AA11649444B79A97BBDC8 /* Compile Code Assets */,
 				DAE2EF9C2708FB07121A2F49 /* Compile Kotlin Framework */,
 				8C2C60AC423161C4D49D22A0 /* Sources */,
 				C4DC62C32F58D7535A45EC54 /* Frameworks */,
@@ -129,7 +128,7 @@
 /* End PBXProject section */
 
 /* Begin PBXBuildRule section */
-																					/* End PBXBuildRule section */
+																																																																																																																																							/* End PBXBuildRule section */
 
 /* Begin PBXBuildFile section */
 /* End PBXBuildFile section */
@@ -145,25 +144,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		D66AA11649444B79A97BBDC8 /* Compile Code Assets */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			alwaysOutOfDate = 1;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Compile Code Assets";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			shellPath = /bin/sh;
-			showEnvVarsInLog = 0;	
-			shellScript = "# This output is used by Xcode outputs to avoid re-running this script phase.\nsh -c \"${A8CDBB7}\"";
-		};
 		DAE2EF9C2708FB07121A2F49 /* Compile Kotlin Framework */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

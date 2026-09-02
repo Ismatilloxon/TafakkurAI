@@ -1,14 +1,17 @@
 package user
 
 import (
+	"context"
 	"errors"
-	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/tafakkur/backend/internal/media"
 	"github.com/tafakkur/backend/internal/platform"
@@ -123,45 +126,149 @@ func (h *Handler) completeOnboarding(w http.ResponseWriter, r *http.Request) {
 	platform.JSON(w, http.StatusOK, ToUserProfileDTO(acc))
 }
 
-const maxPhotoBytes = 8 << 20 // 8 MiB
+const (
+	maxPhotoBytes                   = 8 << 20 // 8 MiB
+	maxPhotoMultipartOverhead       = 64 << 10
+	multipartMemoryBytes            = 256 << 10
+	maxPhotoDimension               = 10_000
+	maxPhotoPixels            int64 = 32_000_000
+)
+
+var (
+	errPhotoEmpty       = errors.New("photo is empty")
+	errPhotoTooLarge    = errors.New("photo is too large")
+	errPhotoUnsupported = errors.New("photo format is unsupported")
+	errPhotoDimensions  = errors.New("photo dimensions are unsafe")
+)
+
+type profilePhotoFormat struct {
+	contentType string
+	extension   string
+}
 
 func (h *Handler) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 	uid := platform.MustUserID(r.Context())
 
-	if err := r.ParseMultipartForm(maxPhotoBytes); err != nil {
+	if r.ContentLength > maxPhotoBytes+maxPhotoMultipartOverhead {
+		platform.Error(w, http.StatusRequestEntityTooLarge, platform.CodePayloadTooLarge, "photo must be 8 MiB or smaller")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxPhotoBytes+maxPhotoMultipartOverhead)
+	if err := r.ParseMultipartForm(multipartMemoryBytes); err != nil {
+		var sizeErr *http.MaxBytesError
+		if errors.As(err, &sizeErr) {
+			platform.Error(w, http.StatusRequestEntityTooLarge, platform.CodePayloadTooLarge, "photo must be 8 MiB or smaller")
+			return
+		}
 		platform.Error(w, http.StatusBadRequest, platform.CodeBadRequest, "invalid multipart form")
 		return
 	}
-	file, header, err := r.FormFile("photo")
+	defer r.MultipartForm.RemoveAll()
+
+	photoFiles := r.MultipartForm.File["photo"]
+	if len(photoFiles) != 1 {
+		platform.Error(w, http.StatusBadRequest, platform.CodeBadRequest, "exactly one 'photo' file is required")
+		return
+	}
+	for field, files := range r.MultipartForm.File {
+		if field != "photo" && len(files) > 0 {
+			platform.Error(w, http.StatusBadRequest, platform.CodeBadRequest, "unexpected file field")
+			return
+		}
+	}
+
+	header := photoFiles[0]
+	file, err := header.Open()
 	if err != nil {
-		platform.Error(w, http.StatusBadRequest, platform.CodeBadRequest, "missing 'photo' file field")
+		platform.Error(w, http.StatusBadRequest, platform.CodeBadRequest, "could not read photo")
 		return
 	}
 	defer file.Close()
 
-	contentType := header.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") {
-		platform.Error(w, http.StatusUnprocessableEntity, platform.CodeUnprocessable, "file must be an image")
+	format, err := inspectProfilePhoto(file, header.Size)
+	if err != nil {
+		if errors.Is(err, errPhotoTooLarge) {
+			platform.Error(w, http.StatusRequestEntityTooLarge, platform.CodePayloadTooLarge, "photo must be 8 MiB or smaller")
+			return
+		}
+		platform.Error(w, http.StatusUnprocessableEntity, platform.CodeUnprocessable, "photo must be a valid JPEG or PNG within safe dimensions")
 		return
 	}
-	ext := filepath.Ext(header.Filename)
-	if ext == "" {
-		ext = ".jpg"
-	}
-	key := fmt.Sprintf("avatars/%s/%d%s", uid, time.Now().UTC().Unix(), ext)
+	key := "avatars/" + uid.String() + "/" + uuid.NewString() + format.extension
 
-	url, err := h.media.Upload(r.Context(), key, contentType, file)
+	url, err := h.media.Upload(r.Context(), media.Upload{
+		Key:         key,
+		ContentType: format.contentType,
+		Size:        header.Size,
+		Body:        file,
+	})
 	if err != nil {
 		if errors.Is(err, media.ErrNotConfigured) {
 			platform.Error(w, http.StatusServiceUnavailable, platform.CodeUnavailable, "media storage not configured")
+			return
+		}
+		if errors.Is(err, media.ErrInvalidUpload) {
+			platform.Error(w, http.StatusUnprocessableEntity, platform.CodeUnprocessable, "invalid photo upload")
 			return
 		}
 		platform.Error(w, http.StatusBadGateway, platform.CodeInternal, "upload failed")
 		return
 	}
 	if _, err := h.svc.SetPhoto(r.Context(), uid, url); err != nil {
+		// No profile references this object if the source-of-truth update failed.
+		// Best-effort cleanup prevents orphaned public media and storage growth.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+		_ = h.media.Delete(cleanupCtx, key)
+		cancel()
 		h.respondErr(w, err)
 		return
 	}
 	platform.JSON(w, http.StatusOK, map[string]string{"url": url})
+}
+
+func inspectProfilePhoto(file io.ReadSeeker, size int64) (profilePhotoFormat, error) {
+	switch {
+	case size <= 0:
+		return profilePhotoFormat{}, errPhotoEmpty
+	case size > maxPhotoBytes:
+		return profilePhotoFormat{}, errPhotoTooLarge
+	}
+
+	var signature [512]byte
+	n, err := io.ReadFull(file, signature[:])
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return profilePhotoFormat{}, errPhotoUnsupported
+	}
+	detected := http.DetectContentType(signature[:n])
+	format, ok := map[string]profilePhotoFormat{
+		"image/jpeg": {contentType: "image/jpeg", extension: ".jpg"},
+		"image/png":  {contentType: "image/png", extension: ".png"},
+	}[detected]
+	if !ok {
+		return profilePhotoFormat{}, errPhotoUnsupported
+	}
+
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return profilePhotoFormat{}, errPhotoUnsupported
+	}
+	config, decodedFormat, err := image.DecodeConfig(io.LimitReader(file, maxPhotoBytes))
+	if err != nil || decodedFormat != formatName(format) {
+		return profilePhotoFormat{}, errPhotoUnsupported
+	}
+	if config.Width <= 0 || config.Height <= 0 ||
+		config.Width > maxPhotoDimension || config.Height > maxPhotoDimension ||
+		int64(config.Width)*int64(config.Height) > maxPhotoPixels {
+		return profilePhotoFormat{}, errPhotoDimensions
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return profilePhotoFormat{}, errPhotoUnsupported
+	}
+	return format, nil
+}
+
+func formatName(format profilePhotoFormat) string {
+	if format.contentType == "image/jpeg" {
+		return "jpeg"
+	}
+	return "png"
 }

@@ -70,7 +70,7 @@ class MushafPageViewModel(
             _state.update { it.copy(isLoading = true, error = null) }
             val range = runCatching { repository.pagesOf(surahNumber) }.getOrNull()
             if (range == null) {
-                _state.update { it.copy(isLoading = false, error = "Couldn't load the mushaf pages.") }
+                _state.update { it.copy(isLoading = false, error = "quran.mushaf.pages_load_failed") }
                 return@launch
             }
             _state.update { it.copy(pageNumbers = range.toList(), index = 0) }
@@ -90,7 +90,7 @@ class MushafPageViewModel(
                 }
                 .onFailure {
                     if (_state.value.pageNumber != number) return@onFailure
-                    _state.update { it.copy(isLoading = false, error = "Couldn't load page $number.") }
+                    _state.update { it.copy(isLoading = false, error = "quran.mushaf.page_load_failed") }
                 }
             // The next page is nearly always the next thing wanted; fetch it while reading.
             (repository as? QuranComMushafPageRepository)?.prefetch(number + 1)

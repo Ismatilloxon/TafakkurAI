@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -33,11 +34,6 @@ import androidx.compose.ui.unit.dp
 import com.example.tafakkurai.i18n.tr
 import androidx.compose.ui.unit.sp
 import com.example.tafakkurai.ChatMsg
-import com.example.tafakkurai.TCHAT
-import com.example.tafakkurai.TCHAT_SUGGEST
-import com.example.tafakkurai.aiReply
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 // ── Avatar (colored initials) ────────────────────────────────────────────────
 private val AVATAR_COLORS = listOf(
@@ -59,7 +55,8 @@ fun Avatar(name: String, seed: Int = 0, size: Int = 32) {
 @Composable
 fun UserAvatar(size: Int = 34, letter: String = "A", onClick: (() -> Unit)? = null) {
     val c = LocalTf.current
-    val photo = com.example.tafakkurai.ProfileImage.bitmap
+    val bytes = com.example.tafakkurai.LocalProfilePhotoBytes.current
+    val photo = remember(bytes) { bytes?.let { runCatching { it.decodeToImageBitmap() }.getOrNull() } }
     val base = Modifier.size(size.dp).clip(CircleShape)
         .background(Brush.linearGradient(listOf(c.gold, c.rose)))
     Box(
@@ -69,7 +66,7 @@ fun UserAvatar(size: Int = 34, letter: String = "A", onClick: (() -> Unit)? = nu
         if (photo != null) {
             androidx.compose.foundation.Image(
                 bitmap = photo,
-                contentDescription = "Profile photo",
+                contentDescription = tr("profile.photo_content_description"),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.matchParentSize(),
             )
@@ -212,7 +209,12 @@ fun ChatBubble(m: ChatMsg) {
 }
 
 @Composable
-fun ChatInput(draft: String, onDraft: (String) -> Unit, onSend: () -> Unit) {
+fun ChatInput(
+    draft: String,
+    onDraft: (String) -> Unit,
+    onSend: () -> Unit,
+    placeholder: String,
+) {
     val c = LocalTf.current
     Row(
         Modifier.fillMaxWidth().drawTopHairline(c.sep).padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 16.dp),
@@ -226,7 +228,7 @@ fun ChatInput(draft: String, onDraft: (String) -> Unit, onSend: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(Modifier.weight(1f)) {
-                if (draft.isEmpty()) TfText("Ask Murabbiy…", color = c.fg3, size = 15f)
+                if (draft.isEmpty()) TfText(placeholder, color = c.fg3, size = 15f)
                 BasicTextField(
                     value = draft,
                     onValueChange = onDraft,
@@ -238,7 +240,6 @@ fun ChatInput(draft: String, onDraft: (String) -> Unit, onSend: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            TfIcon("mic", size = 18, color = c.fg3)
         }
         Box(
             Modifier.size(40.dp).clip(CircleShape).background(c.accent).then(pressScale(onSend, 0.9f)),
@@ -249,13 +250,13 @@ fun ChatInput(draft: String, onDraft: (String) -> Unit, onSend: () -> Unit) {
 
 // ── Suggestion chips row ─────────────────────────────────────────────────────
 @Composable
-fun SuggestRow(onPick: (String) -> Unit) {
+fun SuggestRow(suggestions: List<String>, onPick: (String) -> Unit) {
     val c = LocalTf.current
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        TCHAT_SUGGEST.forEach { s ->
+        suggestions.forEach { s ->
             Box(
                 Modifier.clip(RoundedCornerShape(999.dp)).background(c.card2)
                     .border(0.5.dp, c.sep, RoundedCornerShape(999.dp))
@@ -265,38 +266,12 @@ fun SuggestRow(onPick: (String) -> Unit) {
     }
 }
 
-/** Shared chat state + send logic (companion + coach). */
-@Stable
-class ChatState {
-    var messages by mutableStateOf(TCHAT)
-        private set
-    var draft by mutableStateOf("")
-
-    suspend fun send(text: String? = null, scrollToEnd: suspend () -> Unit = {}) {
-        val t = (text ?: draft).trim()
-        if (t.isEmpty()) return
-        messages = messages + ChatMsg("me", t, "now")
-        draft = ""
-        scrollToEnd()
-        delay(650)
-        messages = messages + ChatMsg("ai", aiReply(t), "now")
-        scrollToEnd()
-    }
-}
-
 // ── Companion bottom sheet ───────────────────────────────────────────────────
 @Composable
 fun BoxScope.CompanionSheet(open: Boolean, onClose: () -> Unit, onFull: () -> Unit) {
     val c = LocalTf.current
-    val scope = rememberCoroutineScope()
-    val chat = remember { ChatState() }
-    val listState = rememberLazyListState()
     val scrim by animateFloatAsState(if (open) 1f else 0f, tween(280))
     val offsetFrac by animateFloatAsState(if (open) 0f else 1f, tween(340))
-
-    LaunchedEffect(open, chat.messages.size) {
-        if (open && chat.messages.isNotEmpty()) listState.animateScrollToItem(chat.messages.size - 1)
-    }
     if (scrim <= 0f && !open) return
 
     Box(
@@ -321,10 +296,10 @@ fun BoxScope.CompanionSheet(open: Boolean, onClose: () -> Unit, onFull: () -> Un
                     contentAlignment = Alignment.Center,
                 ) { TfIcon("sparkles", size = 19, color = Color.White) }
                 Column(Modifier.weight(1f)) {
-                    TfText("Murabbiy", color = c.fg, size = 16f, weight = FontWeight.SemiBold, family = Fonts.display)
+                    TfText(tr("coach.title"), color = c.fg, size = 16f, weight = FontWeight.SemiBold, family = Fonts.display)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         Box(Modifier.size(6.dp).clip(CircleShape).background(c.green))
-                        TfText("On-device · private", color = c.green, size = 12f)
+                        TfText(tr("coach.mode"), color = c.green, size = 12f)
                     }
                 }
                 Box(Modifier.then(pressScale(onFull, 0.9f)).padding(6.dp)) { TfIcon("arrowUpRight", size = 20, color = c.accent) }
@@ -333,29 +308,46 @@ fun BoxScope.CompanionSheet(open: Boolean, onClose: () -> Unit, onFull: () -> Un
                     contentAlignment = Alignment.Center,
                 ) { TfIcon("x", size = 16, color = c.fg2) }
             }
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) { items(chat.messages) { ChatBubble(it) } }
-            SuggestRow { s -> scope.launch { chat.send(s) { if (chat.messages.isNotEmpty()) listState.animateScrollToItem(chat.messages.size - 1) } } }
-            ChatInput(chat.draft, { chat.draft = it }, { scope.launch { chat.send() { if (chat.messages.isNotEmpty()) listState.animateScrollToItem(chat.messages.size - 1) } } })
+            Column(
+                Modifier.weight(1f).fillMaxWidth().padding(20.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Card(Modifier.fillMaxWidth()) {
+                    TfText(
+                        tr("coach.sheet.explanation"),
+                        color = c.fg2,
+                        size = 14f,
+                        lineHeight = 1.5f,
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(12.dp))
+                        .background(c.accent).then(pressScale(onFull, 0.97f)).padding(vertical = 14.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    TfText(tr("coach.sheet.open"), color = Color.White, size = 15f, weight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }
 
 // ── Hub launcher (hub nav mode) ──────────────────────────────────────────────
-private data class HubModule(val k: String, val name: String, val icon: String, val color: String, val sub: String)
+private data class HubModule(
+    val k: String,
+    val nameKey: String,
+    val icon: String,
+    val color: String,
+    val detailKey: String,
+)
 
 private val HUB_MODULES = listOf(
-    HubModule("today", "Today", "sparkles", "teal", "Your AI brief"),
-    HubModule("coach", "Coach", "brain", "purple", "Murabbiy"),
-    HubModule("learn", "Learn", "bookOpen", "cyan", "4 subjects"),
-    HubModule("do", "Productivity", "checkSquare", "teal", "Tasks · focus"),
-    HubModule("thoughts", "Thoughts", "messageCircle", "rose", "From friends"),
-    HubModule("career", "Career", "briefcase", "green", "CV · interviews"),
-    HubModule("finance", "Finance", "wallet", "gold", "Portfolio"),
+    HubModule("today", "tab.today", "sparkles", "teal", "hub.today.detail"),
+    HubModule("coach", "coach.title", "brain", "purple", "hub.coach.detail"),
+    HubModule("learn", "more.module.learn", "bookOpen", "cyan", "more.module.learn_detail"),
+    HubModule("do", "hub.productivity.title", "checkSquare", "teal", "hub.productivity.detail"),
+    HubModule("thoughts", "more.module.thoughts", "messageCircle", "rose", "more.module.thoughts_detail"),
+    HubModule("finance", "more.module.finance", "wallet", "gold", "more.module.finance_detail"),
 )
 
 @Composable
@@ -377,8 +369,8 @@ fun HubLauncher(onOpen: (String) -> Unit) {
                             contentAlignment = Alignment.Center,
                         ) { TfIcon(m.icon, size = 24, color = col) }
                         Column {
-                            TfText(m.name, color = c.fg, size = 17f, weight = FontWeight.SemiBold, family = Fonts.display)
-                            TfText(m.sub, color = c.fg2, size = 12.5f, modifier = Modifier.padding(top = 2.dp))
+                            TfText(tr(m.nameKey), color = c.fg, size = 17f, weight = FontWeight.SemiBold, family = Fonts.display)
+                            TfText(tr(m.detailKey), color = c.fg2, size = 12.5f, modifier = Modifier.padding(top = 2.dp))
                         }
                     }
                 }

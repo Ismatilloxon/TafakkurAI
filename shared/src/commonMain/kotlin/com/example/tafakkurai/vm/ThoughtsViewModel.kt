@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tafakkurai.SocialPost
+import com.example.tafakkurai.social.domain.MAX_SOCIAL_POST_LENGTH
+import com.example.tafakkurai.social.domain.SocialRepository
 import kotlinx.coroutines.launch
 import uz.tafakkur.core.feedback.silently
 import uz.tafakkur.domain.model.SocialPost as DomainPost
@@ -23,14 +25,29 @@ class ThoughtsViewModel(
     private val publishThought: PublishThoughtUseCase,
     private val toggleLikeUseCase: ToggleLikeUseCase,
     private val isLoggedIn: IsLoggedInUseCase,
+    private val localSocial: SocialRepository,
 ) : ViewModel() {
+
+    private val pendingLikes = mutableSetOf<String>()
 
     var posts by mutableStateOf<List<SocialPost>>(emptyList())
         private set
     var loading by mutableStateOf(false)
         private set
+    var loadingMore by mutableStateOf(false)
+        private set
+    var hasMore by mutableStateOf(false)
+        private set
     var error by mutableStateOf<String?>(null)
         private set
+    var loadMoreError by mutableStateOf<String?>(null)
+        private set
+    var publishing by mutableStateOf(false)
+        private set
+    var publishError by mutableStateOf<String?>(null)
+        private set
+
+    private var nextCursor: String? = null
 
     init {
         // App() builds this view model before the auth gate is evaluated, so the first load
@@ -48,40 +65,109 @@ class ThoughtsViewModel(
         // produces a 401.
         if (!isLoggedIn()) {
             posts = emptyList()
+            nextCursor = null
+            hasMore = false
             return
         }
+        if (loading || loadingMore) return
         viewModelScope.launch {
             loading = true
             error = null
+            loadMoreError = null
             try {
                 val page = if (silent) silently { getFeed() } else getFeed()
                 posts = page.posts.map { it.toUi() }
+                nextCursor = page.nextCursor?.takeIf { it.isNotBlank() }
+                hasMore = nextCursor != null
             } catch (e: Exception) {
-                error = e.message ?: "Failed to load feed"
+                error = "thoughts.error.load"
             } finally {
                 loading = false
             }
         }
     }
 
-    fun publish(text: String) {
-        if (text.isBlank()) return
+    /** Appends the next backend page without hiding or duplicating posts already on screen. */
+    fun loadMore() {
+        val cursor = nextCursor ?: return
+        if (loading || loadingMore || !isLoggedIn()) return
         viewModelScope.launch {
+            loadingMore = true
+            loadMoreError = null
             try {
-                posts = listOf(publishThought(text).toUi()) + posts
+                val page = getFeed(cursor)
+                val knownIds = posts.mapTo(mutableSetOf()) { it.id }
+                val additions = page.posts.map { it.toUi() }.filter { knownIds.add(it.id) }
+                posts = posts + additions
+
+                // A repeated cursor would leave the control in an endless request loop.
+                nextCursor = page.nextCursor
+                    ?.takeIf { it.isNotBlank() && it != cursor }
+                hasMore = nextCursor != null
             } catch (e: Exception) {
-                error = e.message ?: "Failed to publish"
+                loadMoreError = "thoughts.error.load"
+            } finally {
+                loadingMore = false
+            }
+        }
+    }
+
+    fun publish(text: String, onPublished: () -> Unit) {
+        val content = text.trim()
+        if (content.isBlank() || publishing) return
+        if (content.length > MAX_SOCIAL_POST_LENGTH) {
+            publishError = "thoughts.error.too_long"
+            return
+        }
+        viewModelScope.launch {
+            publishing = true
+            publishError = null
+            try {
+                val published = publishThought(content).toUi()
+                if (!localSocial.recordPublished(published.id)) {
+                    error = "social.save_failed"
+                }
+                posts = listOf(published) + posts
+                onPublished()
+            } catch (e: Exception) {
+                publishError = "thoughts.error.publish"
+            } finally {
+                publishing = false
             }
         }
     }
 
     fun like(id: String) {
+        if (id in pendingLikes || !isLoggedIn()) return
+        val index = posts.indexOfFirst { it.id == id }
+        if (index < 0) return
+        val previous = posts[index]
+        val optimisticLiked = !previous.likedByMe
+        posts = posts.toMutableList().also { updated ->
+            updated[index] = previous.copy(
+                likedByMe = optimisticLiked,
+                likes = (previous.likes + if (optimisticLiked) 1 else -1).coerceAtLeast(0),
+            )
+        }
+        pendingLikes += id
         viewModelScope.launch {
             try {
-                toggleLikeUseCase(id)
-                refresh()
+                val result = toggleLikeUseCase(id)
+                posts = posts.map { post ->
+                    if (post.id == id) {
+                        post.copy(likedByMe = result.liked, likes = result.likeCount.coerceAtLeast(0))
+                    } else {
+                        post
+                    }
+                }
+                if (!localSocial.setPostLiked(id, result.liked, source = "backend")) {
+                    error = "social.save_failed"
+                }
             } catch (e: Exception) {
-                // keep the optimistic UI state; surface silently
+                posts = posts.map { post -> if (post.id == id) previous else post }
+                error = "thoughts.error.like"
+            } finally {
+                pendingLikes -= id
             }
         }
     }
@@ -91,11 +177,14 @@ class ThoughtsViewModel(
 private fun DomainPost.toUi(): SocialPost = SocialPost(
     id = id,
     author = authorName,
-    handle = if (authorHandle.startsWith("@")) authorHandle else "@$authorHandle",
+    handle = authorHandle.takeIf { it.isNotBlank() }
+        ?.let { if (it.startsWith("@")) it else "@$it" }
+        .orEmpty(),
     avatarSeed = (id.hashCode() and 0x7fffffff) % 8,
-    time = createdAt.substringAfter('T', "").take(5).ifEmpty { "now" },
+    time = createdAt.substringAfter('T', "").take(5),
     text = text,
     likes = likeCount,
     comments = 0,
-    tag = "Thought",
+    tag = "",
+    likedByMe = likedByMe,
 )

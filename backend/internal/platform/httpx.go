@@ -22,16 +22,17 @@ type errorEnvelope struct {
 
 // Common error codes (stable strings the mobile client can switch on).
 const (
-	CodeBadRequest    = "bad_request"
-	CodeValidation    = "validation_error"
-	CodeUnauthorized  = "unauthorized"
-	CodeForbidden     = "forbidden"
-	CodeNotFound      = "not_found"
-	CodeConflict      = "conflict"
-	CodeRateLimited   = "rate_limited"
-	CodeInternal      = "internal_error"
-	CodeUnavailable   = "unavailable"
-	CodeUnprocessable = "unprocessable"
+	CodeBadRequest      = "bad_request"
+	CodeValidation      = "validation_error"
+	CodeUnauthorized    = "unauthorized"
+	CodeForbidden       = "forbidden"
+	CodeNotFound        = "not_found"
+	CodeConflict        = "conflict"
+	CodeRateLimited     = "rate_limited"
+	CodeInternal        = "internal_error"
+	CodeUnavailable     = "unavailable"
+	CodeUnprocessable   = "unprocessable"
+	CodePayloadTooLarge = "payload_too_large"
 )
 
 var validate = validator.New()

@@ -17,8 +17,14 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>TafakkurAI connects to the development server running on your local network.</string>
+	<!-- Stable Bonjour hostname of the development Mac. Override at Xcode launch with
+	     TAFAKKUR_API_BASE_URL, and replace this value with HTTPS for distribution. -->
+	<key>TafakkurAPIBaseURL</key>
+	<string>http://MacBook-Pro-user.local:8080/</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TafakkurAI needs access to your photos so you can set a profile picture.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>TafakkurAI reads your sleep stages and duration to show recovery and sleep trends.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>TafakkurAI uses your location to calculate accurate prayer times for where you are.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

@@ -1,5 +1,6 @@
 package com.example.tafakkurai.i18n
 
+import com.example.tafakkurai.AppPrefs
 import com.example.tafakkurai.spiritual.PrefPersistence
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,13 +19,13 @@ import androidx.compose.runtime.setValue
 enum class Language(
     val code: String,
     val nativeName: String,
-    /** English name, shown as the second line in the picker. */
-    val englishName: String,
+    /** Catalog-backed explanatory label shown under [nativeName]. */
+    val detailKey: String,
 ) {
-    UZBEK_LATIN("uz-Latn", "Oʻzbekcha", "Uzbek (Latin)"),
-    UZBEK_CYRILLIC("uz-Cyrl", "Ўзбекча", "Uzbek (Cyrillic)"),
-    RUSSIAN("ru", "Русский", "Russian"),
-    ENGLISH("en", "English", "English");
+    UZBEK_LATIN("uz-Latn", "Oʻzbekcha", "lang.option.uz_latn.detail"),
+    UZBEK_CYRILLIC("uz-Cyrl", "Ўзбекча", "lang.option.uz_cyrl.detail"),
+    RUSSIAN("ru", "Русский", "lang.option.ru.detail"),
+    ENGLISH("en", "English", "lang.option.en.detail");
 
     companion object {
         val DEFAULT: Language = UZBEK_LATIN
@@ -52,7 +53,7 @@ class LanguageStore(private val prefs: PrefPersistence) {
     init { reload() }
 
     fun reload() {
-        val stored = prefs.get(KEY)
+        val stored = prefs.get(AppPrefs.LANGUAGE)
         hasChosen = stored != null
         current = Language.from(stored)
     }
@@ -60,10 +61,6 @@ class LanguageStore(private val prefs: PrefPersistence) {
     fun choose(language: Language) {
         current = language
         hasChosen = true
-        prefs.put(KEY, language.code)
-    }
-
-    private companion object {
-        const val KEY = "app.language"
+        prefs.put(AppPrefs.LANGUAGE, language.code)
     }
 }

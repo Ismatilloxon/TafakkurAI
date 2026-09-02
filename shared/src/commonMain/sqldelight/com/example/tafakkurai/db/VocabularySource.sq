@@ -1,0 +1,25 @@
+-- Private, user-supplied learning material used for on-device flashcard extraction.
+-- SyncSchema excludes this table: copyrighted/private source text never enters the
+-- generic cloud outbox. Only the resulting user-owned card rows may sync.
+CREATE TABLE vocabularySource (
+    id              TEXT NOT NULL PRIMARY KEY,
+    normalizedTitle TEXT NOT NULL UNIQUE,
+    title           TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    createdAt       INTEGER NOT NULL,
+    updatedAt       INTEGER NOT NULL
+);
+
+upsert:
+INSERT OR REPLACE INTO vocabularySource (
+    id, normalizedTitle, title, content, createdAt, updatedAt
+) VALUES (?, ?, ?, ?, ?, ?);
+
+selectByNormalizedTitle:
+SELECT * FROM vocabularySource WHERE normalizedTitle = ?;
+
+selectAll:
+SELECT * FROM vocabularySource ORDER BY updatedAt DESC;
+
+deleteById:
+DELETE FROM vocabularySource WHERE id = ?;

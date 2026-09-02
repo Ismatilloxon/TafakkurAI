@@ -106,9 +106,9 @@ fun PhoneEntryScreen(
                 sending = true
                 scope.launch {
                     val e164 = "+998$digits"
-                    auth.sendOtp(e164)
+                    val sent = runCatching { auth.sendOtp(e164) }.isSuccess
                     sending = false
-                    onCodeSent(e164, formatUzPhone(digits))
+                    if (sent) onCodeSent(e164, formatUzPhone(digits))
                 }
             }
             Spacer(Modifier.height(24.dp))

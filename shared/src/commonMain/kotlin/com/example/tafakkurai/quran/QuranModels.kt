@@ -62,13 +62,13 @@ data class Reciter(
  */
 data class TranslationEdition(
     val id: String,
-    /** Shown in the picker, in the language itself: "Oʻzbekcha (lotin)". */
-    val label: String,
-    /** English name of the translator, for the second line. */
-    val translator: String,
     val editionCode: String,
     val toUzbekLatin: Boolean = false,
-)
+) {
+    /** Catalog keys keep both the edition name and translator in the active app language. */
+    val labelKey: String get() = "quran.translation.$id.label"
+    val translatorKey: String get() = "quran.translation.$id.translator"
+}
 
 /**
  * The four translations offered at launch. Only one Uzbek translation exists on the API
@@ -76,12 +76,11 @@ data class TranslationEdition(
  * translation of unknown provenance.
  */
 val TRANSLATIONS: List<TranslationEdition> = listOf(
-    TranslationEdition("en", "English", "Saheeh International", "en.sahih"),
-    TranslationEdition("ru", "Русский", "Elmir Kuliev", "ru.kuliev"),
-    TranslationEdition("uz-cyrl", "Ўзбекча (кирилл)", "Muhammad Sodik Muhammad Yusuf", "uz.sodik"),
+    TranslationEdition("en", "en.sahih"),
+    TranslationEdition("ru", "ru.kuliev"),
+    TranslationEdition("uz-cyrl", "uz.sodik"),
     TranslationEdition(
-        "uz-latn", "Oʻzbekcha (lotin)", "Muhammad Sodik Muhammad Yusuf",
-        "uz.sodik", toUzbekLatin = true,
+        "uz-latn", "uz.sodik", toUzbekLatin = true,
     ),
 )
 
@@ -89,6 +88,21 @@ val DEFAULT_TRANSLATION: TranslationEdition = TRANSLATIONS.first()
 
 fun translationOf(id: String?): TranslationEdition =
     TRANSLATIONS.firstOrNull { it.id == id } ?: DEFAULT_TRANSLATION
+
+/**
+ * Translation used while the reader has no explicit translation preference.
+ *
+ * App-language codes deliberately live at this boundary as strings: the Qurʼan domain does
+ * not depend on the interface-language store, while the composition root can still provide
+ * the active language. Unknown codes retain the established English fallback.
+ */
+fun translationForAppLanguage(languageCode: String?): TranslationEdition = when (languageCode) {
+    "uz-Latn" -> translationOf("uz-latn")
+    "uz-Cyrl" -> translationOf("uz-cyrl")
+    "ru" -> translationOf("ru")
+    "en" -> translationOf("en")
+    else -> DEFAULT_TRANSLATION
+}
 
 // ── Mushaf (script) ──────────────────────────────────────────────────────────
 

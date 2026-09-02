@@ -10,11 +10,13 @@ import com.example.tafakkurai.prayer.deviceDateKey
 import com.example.tafakkurai.spiritual.PrefPersistence
 import com.example.tafakkurai.spiritual.dayNumberOf
 import com.example.tafakkurai.spiritual.parseDateKey
-import com.example.tafakkurai.sync.Outbox
 import com.example.tafakkurai.sync.syncJson
+import com.example.tafakkurai.sync.ActivityLog
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.random.Random
 
 /** Outbox payload for a gratitude change. The client id keeps a replay idempotent. */
@@ -50,23 +52,25 @@ private fun randomEntryId(): String {
 /**
  * Local-first, observable source of truth for the Gratitude journal.
  *
- * Every mutation writes SQLDelight first and appends to the [Outbox] second, so an
+ * Every mutation writes SQLDelight and stops there. The sync platform notices the write
+ * through a database trigger, so this store carries no queue, no payload and no retry —
  * entry written on a plane is real immediately and reaches the backend on the next
  * app enter. Reads are mirrored into a Compose [mutableStateListOf], which is what
  * makes the home card, history, search, jar and insights all agree the instant any
  * one of them writes.
  *
- * Every DB call is wrapped in `runCatching`, matching `PrayerMarkStore`: an install
- * that has not run the v4 → v5 migration degrades to in-session state instead of
- * crashing a tap, and recovers as soon as the migration lands.
+ * Writes fail closed: observable memory changes only after SQL commits. Qualifying
+ * actions append their ActivityEvent inside that same SQLDelight transaction, while
+ * favourites, journey membership and settings remain synced preferences rather than
+ * fake activity that could award XP or complete Today's plan.
  */
 class GratitudeStore(
     private val db: TafakkurDb,
-    private val outbox: Outbox? = null,
     private val prefs: PrefPersistence? = null,
     private val todayKey: () -> String = ::deviceDateKey,
     private val now: () -> Long = ::epochMillis,
     private val newId: () -> String = ::randomEntryId,
+    private val activity: ActivityLog? = null,
 ) {
     private val q get() = db.gratitudeEntryQueries
     private val cq get() = db.gratitudeChallengeQueries
@@ -83,7 +87,13 @@ class GratitudeStore(
         private set
 
     init {
+        reload()
+    }
+
+    /** Rehydrate all observable state after a sync merge or account switch. */
+    fun reload() {
         refresh()
+        settings = GratSettings()
         loadSettings()
     }
 
@@ -174,18 +184,30 @@ class GratitudeStore(
         hasAudio: Boolean = false,
         hasVideo: Boolean = false,
         locationLabel: String? = null,
-    ): GratEntry {
+        source: String = "user",
+    ): GratEntry? {
+        val draft = normalizeGratitudeDraft(
+            GratitudeDraft(
+                mode = mode,
+                text = text,
+                items = items,
+                why = why,
+                category = category,
+                mood = mood,
+                emotions = emotions,
+            ),
+        ) ?: return null
         val stamp = now()
         val entry = GratEntry(
             id = newId(),
-            mode = mode.id,
-            text = text.trim(),
-            items = items,
-            why = why?.takeIf { it.isNotBlank() },
-            category = category ?: DEFAULT_CATEGORY,
-            mood = mood,
-            emotions = emotions,
-            photoCount = photoCount,
+            mode = draft.mode.id,
+            text = draft.text,
+            items = draft.items,
+            why = draft.why,
+            category = draft.category ?: DEFAULT_CATEGORY,
+            mood = draft.mood,
+            emotions = draft.emotions,
+            photoCount = photoCount.coerceAtLeast(0),
             hasAudio = hasAudio,
             hasVideo = hasVideo,
             locationLabel = locationLabel,
@@ -193,28 +215,72 @@ class GratitudeStore(
             createdAt = stamp,
             updatedAt = stamp,
         )
-        persist(entry)
+        val persisted = runCatching {
+            db.transaction {
+                persist(entry)
+                check(activity?.record(
+                    feature = "gratitude",
+                    type = "entry_created",
+                    entityId = entry.id,
+                    properties = buildJsonObject {
+                        put("entry_id", entry.id)
+                        put("mode", entry.mode)
+                        put("category", entry.category)
+                    },
+                    source = source,
+                ) ?: true) { "Could not append gratitude ActivityEvent" }
+            }
+        }.isSuccess
+        if (!persisted) return null
         _entries.add(0, entry)
-        enqueue("gratitudeEntry", "create", syncJson.encodeToString(GratEntrySyncPayload(entry)))
         return entry
     }
 
     fun toggleFavourite(id: String) {
         val index = _entries.indexOfFirst { it.id == id }
         if (index < 0) return
-        val updated = _entries[index].copy(favourite = !_entries[index].favourite, updatedAt = now())
-        _entries[index] = updated
-        runCatching { q.setFavourite(if (updated.favourite) 1L else 0L, updated.updatedAt, id) }
-        enqueue("gratitudeEntry", "favourite", syncJson.encodeToString(GratEntryRefPayload(id, updated.favourite)))
+        val stamp = now()
+        val updated = _entries[index].copy(favourite = !_entries[index].favourite, updatedAt = stamp)
+        val persisted = runCatching {
+            db.transaction {
+                q.setFavourite(if (updated.favourite) 1L else 0L, stamp, id)
+            }
+        }.isSuccess
+        if (persisted) _entries[index] = updated
     }
 
     /** Replaces an edited entry. Same id, so the backend upsert updates in place. */
-    fun update(entry: GratEntry) {
+    fun update(entry: GratEntry): Boolean {
         val index = _entries.indexOfFirst { it.id == entry.id }
-        val updated = entry.copy(updatedAt = now())
-        if (index >= 0) _entries[index] = updated else _entries.add(0, updated)
-        persist(updated)
-        enqueue("gratitudeEntry", "update", syncJson.encodeToString(GratEntrySyncPayload(updated)))
+        if (index < 0) return false
+        val current = _entries[index]
+        val normalized = entry.normalizedContent() ?: return false
+        val updated = normalized.copy(
+            id = current.id,
+            entryDate = current.entryDate,
+            createdAt = current.createdAt,
+            updatedAt = now(),
+            serverId = current.serverId,
+            favourite = current.favourite,
+            photoCount = current.photoCount,
+            hasAudio = current.hasAudio,
+            hasVideo = current.hasVideo,
+            locationLabel = current.locationLabel,
+        )
+        val persisted = runCatching {
+            db.transaction {
+                persist(updated)
+                check(activity?.record(
+                    "gratitude",
+                    "entry_updated",
+                    buildJsonObject { put("entry_id", updated.id) },
+                    entityId = updated.id,
+                ) ?: true) { "Could not append gratitude ActivityEvent" }
+            }
+        }.isSuccess
+        if (!persisted) return false
+        _entries[index] = updated
+        return true
     }
 
     /**
@@ -222,48 +288,81 @@ class GratitudeStore(
      * still be delivered after the app restarts; it is purged once synced.
      */
     fun delete(id: String) {
-        _entries.removeAll { it.id == id }
-        runCatching { q.softDelete(now(), id) }
-        enqueue("gratitudeEntry", "delete", syncJson.encodeToString(GratEntryRefPayload(id)))
+        if (_entries.none { it.id == id }) return
+        val persisted = runCatching {
+            db.transaction {
+                q.softDelete(now(), id)
+                check(activity?.record(
+                    "gratitude",
+                    "entry_deleted",
+                    buildJsonObject { put("entry_id", id) },
+                    entityId = id,
+                ) ?: true) { "Could not append gratitude ActivityEvent" }
+            }
+        }.isSuccess
+        if (persisted) _entries.removeAll { it.id == id }
     }
 
     fun setChallengeJoined(challengeId: String, joined: Boolean) {
+        if (gratitudeChallengeOf(challengeId) == null) return
+        if (joinedChallenges.contains(challengeId) == joined) return
+        val persisted = runCatching {
+            db.transaction { cq.setJoined(challengeId, if (joined) 1L else 0L, now()) }
+        }.isSuccess
+        if (!persisted) return
         if (joined) {
-            if (!joinedChallenges.contains(challengeId)) joinedChallenges.add(challengeId)
+            joinedChallenges.add(challengeId)
         } else {
             joinedChallenges.remove(challengeId)
         }
-        runCatching { cq.setJoined(challengeId, if (joined) 1L else 0L, now()) }
-        enqueue("gratitudeChallenge", "join", syncJson.encodeToString(GratChallengeSyncPayload(challengeId, joined)))
     }
 
     fun completeChallengeDay(challengeId: String, day: Int) {
-        val set = challengeDays.getOrPut(challengeId) { mutableSetOf() }
-        if (!set.add(day)) return
+        if (!isValidChallengeDay(challengeId, day)) return
+        val current = challengeDays[challengeId].orEmpty()
+        if (day in current) return
+        val stamp = now()
+        val date = todayKey()
+        val persisted = runCatching {
+            db.transaction {
+                cq.setJoined(challengeId, 1L, stamp)
+                cq.completeDay(challengeId, day.toLong(), stamp)
+                check(activity?.record(
+                    feature = "gratitude",
+                    type = "challenge_day_completed",
+                    properties = buildJsonObject {
+                        put("challenge_id", challengeId)
+                        put("day", day)
+                    },
+                    entityId = "gratitude-challenge:$challengeId:day:$day",
+                    occurredAtOverride = stamp,
+                    localDateOverride = date,
+                ) ?: true) { "Could not append gratitude challenge ActivityEvent" }
+            }
+        }.isSuccess
+        if (!persisted) return
         // Re-assign so Compose sees a new set instance and recomposes the day list.
-        challengeDays[challengeId] = set.toMutableSet()
+        challengeDays[challengeId] = (current + day).toMutableSet()
         if (!joinedChallenges.contains(challengeId)) joinedChallenges.add(challengeId)
-        runCatching {
-            cq.setJoined(challengeId, 1L, now())
-            cq.completeDay(challengeId, day.toLong(), now())
-        }
-        enqueue(
-            "gratitudeChallenge",
-            "complete",
-            syncJson.encodeToString(GratChallengeSyncPayload(challengeId, true, day)),
-        )
     }
 
     fun saveSettings(next: GratSettings) {
-        settings = next
-        prefs?.put(PREF_SETTINGS, syncJson.encodeToString(next.toPayload()))
-        enqueue("gratitudeSettings", "save", syncJson.encodeToString(next.toPayload()))
+        if (settings == next) return
+        val encoded = syncJson.encodeToString(next.toPayload())
+        // A null preference port is used only by an ephemeral preview construction.
+        val persisted = prefs == null || runCatching {
+            db.transaction { db.appPrefQueries.put(PREF_SETTINGS, encoded) }
+        }.isSuccess
+        if (persisted) settings = next
     }
 
     /** Applies entries pulled from the backend without re-queueing them for upload. */
     fun mergeFromServer(remote: List<GratEntry>, deletedIds: Set<String> = emptySet()) {
-        remote.forEach { entry ->
-            persist(entry)
+        remote.forEach { raw ->
+            val entry = raw.normalizedContent() ?: return@forEach
+            val local = _entries.firstOrNull { it.id == entry.id }
+            if (!shouldApplyRemoteEntry(local, entry)) return@forEach
+            if (runCatching { persist(entry) }.isFailure) return@forEach
             val index = _entries.indexOfFirst { it.id == entry.id }
             if (index >= 0) _entries[index] = entry else _entries.add(entry)
         }
@@ -276,13 +375,8 @@ class GratitudeStore(
 
     // ── plumbing ─────────────────────────────────────────────────────────────
 
-    private fun enqueue(entity: String, op: String, payload: String) {
-        outbox?.enqueue(entity, op, payload)
-    }
-
     private fun persist(e: GratEntry) {
-        runCatching {
-            q.upsert(
+        q.upsert(
                 id = e.id,
                 serverId = e.serverId,
                 mode = e.mode,
@@ -301,8 +395,7 @@ class GratitudeStore(
                 createdAt = e.createdAt,
                 updatedAt = e.updatedAt,
                 deleted = 0L,
-            )
-        }
+        )
     }
 
     private fun loadSettings() {
@@ -340,6 +433,30 @@ private fun GratSettings.toPayload() =
 
 private fun GratSettingsSyncPayload.toSettings() =
     GratSettings(reminderSlot, reminderTime, faceId, appLock, hidePreview, cloudSync)
+
+private fun GratEntry.normalizedContent(): GratEntry? {
+    val draft = normalizeGratitudeDraft(
+        GratitudeDraft(
+            mode = GratMode.from(mode),
+            text = text,
+            items = items,
+            why = why,
+            category = category,
+            mood = mood,
+            emotions = emotions,
+        ),
+    ) ?: return null
+    return copy(
+        mode = draft.mode.id,
+        text = draft.text,
+        items = draft.items,
+        why = draft.why,
+        category = draft.category ?: DEFAULT_CATEGORY,
+        mood = draft.mood,
+        emotions = draft.emotions,
+        photoCount = photoCount.coerceAtLeast(0),
+    )
+}
 
 /** Small helper so the challenge map is Compose-observable without a custom type. */
 private fun mutableStateMapOfInt() = androidx.compose.runtime.mutableStateMapOf<String, MutableSet<Int>>()

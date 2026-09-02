@@ -1,7 +1,5 @@
 package com.example.tafakkurai.onboarding
 
-import kotlinx.coroutines.delay
-
 // ─────────────────────────────────────────────────────────────────────────────
 //  Onboarding + auth — model, content and the auth/gate seams.
 //
@@ -13,14 +11,14 @@ enum class SlideArt { ORB, RADAR, PRAYER, TILES }
 
 data class Slide(
     val accent: String,
-    val overline: String,
-    val title: String,
+    val overlineKey: String,
+    val titleKey: String,
     val titleSize: Float,
-    val body: String,
+    val bodyKey: String,
     val art: SlideArt,
     val tiles: List<AspectTile> = emptyList(),
     val tileCols: Int = 2,
-    val chips: List<String> = emptyList(),
+    val chipKeys: List<String> = emptyList(),
     val serifTitle: Boolean = false,
 )
 
@@ -29,101 +27,111 @@ val ONB_SLIDES: List<Slide> = listOf(
     // 1 — Hero
     Slide(
         accent = "teal",
-        overline = "BISMILLAH",
-        title = "Tafakkur AI",
+        overlineKey = "onb.hero.overline",
+        titleKey = "onb.hero.title",
         titleSize = 46f,
         serifTitle = true,
-        body = "Oʻzingizni har kuni rivojlantiring — fikrlang, oʻrganing, amal qiling va muhosaba qiling. Bir tinch, aqlli hamroh bilan.",
+        bodyKey = "onb.hero.body",
         art = SlideArt.ORB,
     ),
     // 2 — Balance intro
     Slide(
         accent = "teal",
-        overline = "MUVOZANAT · BALANCE",
-        title = "Besh tomonlama rivojlanish",
+        overlineKey = "onb.balance.overline",
+        titleKey = "onb.balance.title",
         titleSize = 30f,
-        body = "Hayotingiz besh yoʻnalishda oʻlchanadi. Har birida quyidagi imkoniyatlar — keyingi ekranlarda koʻring.",
+        bodyKey = "onb.balance.body",
         art = SlideArt.RADAR,
     ),
     // 3 — Spiritual
     Slide(
         accent = "gold",
-        overline = "MAʼNAVIY · SPIRITUAL",
-        title = "Maʼnaviy rivojlanish",
+        overlineKey = "onb.spiritual.overline",
+        titleKey = "onb.spiritual.title",
         titleSize = 30f,
-        body = "Kuningiz Salah bilan uygʻun — ibodat, muhosaba va shukr.",
+        bodyKey = "onb.spiritual.body",
         art = SlideArt.PRAYER,
-        chips = listOf("Namoz tracker", "Tafakkur", "Qurʼon & zikr", "Shukr"),
+        chipKeys = listOf(
+            "onb.chip.prayer_tracker",
+            "onb.chip.reflection",
+            "onb.chip.quran_dhikr",
+            "onb.chip.gratitude",
+        ),
     ),
     // 4 — Physical
     Slide(
         accent = "green",
-        overline = "JISMONIY · PHYSICAL",
-        title = "Jismoniy salomatlik",
+        overlineKey = "onb.physical.overline",
+        titleKey = "onb.physical.title",
         titleSize = 30f,
-        body = "Energiya, dam va harakat — tanangizga gʻamxoʻrlik.",
+        bodyKey = "onb.physical.body",
         art = SlideArt.TILES,
         tiles = listOf(
-            AspectTile("repeat", "Odatlar", "Streak"),
-            AspectTile("coffee", "Fokus", "Pomodoro"),
-            AspectTile("moon", "Uyqu & dam", "Tahlil"),
-            AspectTile("activity", "Sport & Gym", "Mashqlar"),
+            AspectTile("repeat", "onb.tile.habits.title", "onb.tile.habits.subtitle"),
+            AspectTile("coffee", "onb.tile.focus.title", "onb.tile.focus.subtitle"),
+            AspectTile("moon", "onb.tile.sleep.title", "onb.tile.sleep.subtitle"),
+            AspectTile("activity", "onb.tile.sport.title", "onb.tile.sport.subtitle"),
         ),
     ),
     // 5 — Educational
     Slide(
         accent = "purple",
-        overline = "TAʼLIM · EDUCATIONAL",
-        title = "Taʼlim va oʻsish",
+        overlineKey = "onb.educational.overline",
+        titleKey = "onb.educational.title",
         titleSize = 30f,
-        body = "AI yordamida oʻrganing, mashq qiling va karyera quring.",
+        bodyKey = "onb.educational.body",
         art = SlideArt.TILES,
         tiles = listOf(
-            AspectTile("languages", "Fanlar", "Til, kod, math"),
-            AspectTile("sparkles", "AI darslar", "Shaxsiy"),
-            AspectTile("checkCircle", "Testlar", "Bilim sinovi"),
-            AspectTile("briefcase", "Karyera", "CV & suhbat"),
+            AspectTile("languages", "onb.tile.subjects.title", "onb.tile.subjects.subtitle"),
+            AspectTile("sparkles", "onb.tile.ai_lessons.title", "onb.tile.ai_lessons.subtitle"),
+            AspectTile("checkCircle", "onb.tile.tests.title", "onb.tile.tests.subtitle"),
+            AspectTile("bookmark", "onb.tile.flashcards.title", "onb.tile.flashcards.subtitle"),
         ),
     ),
     // 6 — Social
     Slide(
         accent = "cyan",
-        overline = "IJTIMOIY · SOCIAL",
-        title = "Ijtimoiy aloqa",
+        overlineKey = "onb.social.overline",
+        titleKey = "onb.social.title",
         titleSize = 30f,
-        body = "Hamjamiyat, doʻstlar va ustozlar bilan birga oʻsing.",
+        bodyKey = "onb.social.body",
         art = SlideArt.TILES,
         tiles = listOf(
-            AspectTile("messageCircle", "Fikrlar", "Ulashish"),
-            AspectTile("users", "Doiralar", "Guruhlar"),
-            AspectTile("graduationCap", "Ustozlar", "Yoʻl-yoʻriq"),
+            AspectTile("messageCircle", "onb.tile.posts.title", "onb.tile.posts.subtitle"),
+            AspectTile("users", "onb.tile.circles.title", "onb.tile.circles.subtitle"),
+            AspectTile("heart", "onb.tile.checkins.title", "onb.tile.checkins.subtitle"),
         ),
         tileCols = 3,
     ),
     // 7 — Financial
     Slide(
         accent = "amber",
-        overline = "MOLIYAVIY · FINANCIAL",
-        title = "Moliyaviy ong",
+        overlineKey = "onb.financial.overline",
+        titleKey = "onb.financial.title",
         titleSize = 30f,
-        body = "Toping, tejang va ehson qiling — ogohlik bilan.",
+        bodyKey = "onb.financial.body",
         art = SlideArt.TILES,
         tiles = listOf(
-            AspectTile("lineChart", "Portfel", "Kuzatuv"),
-            AspectTile("trendingUp", "Pul odatlari", "Tejash"),
-            AspectTile("activity", "Tahlillar", "Insight"),
-            AspectTile("heart", "Sadaqa", "Xayriya"),
+            AspectTile("list", "onb.tile.ledger.title", "onb.tile.ledger.subtitle"),
+            AspectTile("wallet", "onb.tile.budgets.title", "onb.tile.budgets.subtitle"),
+            AspectTile("activity", "onb.tile.balance.title", "onb.tile.balance.subtitle"),
         ),
+        tileCols = 3,
     ),
     // 8 — AI coach
     Slide(
         accent = "teal",
-        overline = "MURABBIY · AI COACH",
-        title = "Shaxsiy AI murabbiy",
+        overlineKey = "onb.coach.overline",
+        titleKey = "onb.coach.title",
         titleSize = 30f,
-        body = "Murabbiy kuningizni rejalashtiradi, darslar yaratadi va siz bilan muhosaba qiladi — barchasi qurilmangizda, maxfiy.",
+        bodyKey = "onb.coach.body",
         art = SlideArt.ORB,
-        chips = listOf("Kunlik reja", "Motivatsiya", "Muhosaba", "On-device"),
+        chipKeys = listOf(
+            "onb.chip.daily_plan",
+            "onb.chip.motivation",
+            "onb.chip.reflection",
+            "onb.chip.on_device",
+        ),
     ),
 )
 
@@ -134,9 +142,8 @@ enum class AuthProvider { APPLE, GOOGLE, PHONE, TELEGRAM }
 data class TelegramBotInfo(val botUsername: String, val deepLink: String, val codeLength: Int)
 
 /**
- * The onboarding flow talks to auth through this seam only. The demo impl below
- * makes the flow fully runnable with no backend. To go live, back these calls
- * with the existing use-cases wired in [uz.tafakkur.di.SharedModule]:
+ * The onboarding flow talks to auth through this seam only. Production wiring uses
+ * [BackendOnboardingAuth], backed by the use-cases in [uz.tafakkur.di.SharedModule]:
  *   signInWith(APPLE/GOOGLE) → SignInUseCase(...)
  *   sendOtp(phone)           → StartPhoneOtpUseCase(phone)
  *   verifyOtp(code)          → SignInUseCase(otp = code)   // sets the token
@@ -171,51 +178,9 @@ interface OnboardingAuth {
     suspend fun verifyOtp(code: String): Boolean
 }
 
-/** Runnable stub: short delays, accepts any 6-digit code (spec's demo mode). */
-class DemoOnboardingAuth : OnboardingAuth {
-    override suspend fun signInWith(provider: AuthProvider) {
-        delay(800)
-    }
-
-    override suspend fun startGoogleLogin(): String {
-        delay(300)
-        return "https://accounts.google.com/"
-    }
-
-    override suspend fun awaitGoogleApproval(): Boolean {
-        delay(800)
-        return true
-    }
-
-    override suspend fun telegramBot() =
-        TelegramBotInfo("tafakkur_demo_bot", "https://t.me/tafakkur_demo_bot", 6)
-
-    override suspend fun verifyTelegramCode(code: String): Boolean {
-        delay(400)
-        return code.length == 6 && code.all { it.isDigit() }
-    }
-
-    override suspend fun sendOtp(phoneE164: String) {
-        delay(600)
-    }
-
-    override suspend fun verifyOtp(code: String): Boolean {
-        delay(400)
-        return code.length == 6 && code.all { it.isDigit() }
-    }
-}
-
-/**
- * Whether the welcome carousel has been seen. In-memory by default (the flow
- * still gates correctly within a session); swap for a persisted impl — or the
- * real IsLoggedInUseCase — to skip onboarding across cold launches.
- */
+/** Whether the welcome carousel has been seen. */
 interface OnboardingGate {
     var completed: Boolean
-}
-
-class InMemoryOnboardingGate : OnboardingGate {
-    override var completed: Boolean = false
 }
 
 /** Debug override for where the flow starts (spec's "Launch at" control). */

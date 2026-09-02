@@ -23,7 +23,8 @@ CREATE TABLE syncSession (
 );
 
 -- ---------------------------------------------------------------------------
--- syncEvent: the outbox. One row per changed entity row, never one per tap.
+-- syncEvent: the outbox. State changes coalesce per entity row; append-only activity
+-- events intentionally keep one row per meaningful action.
 --
 -- The partial unique index on (dedupeKey) WHERE status='pending' is the coalescing
 -- mechanism: the trigger's upsert collides with any pending event for the same row
@@ -124,8 +125,41 @@ FROM syncEvent
 WHERE userId = ? AND status = 'inflight'
 ORDER BY createdAt ASC;
 
-setPayload:
-UPDATE syncEvent SET payload = ? WHERE id = ?;
+-- Append one activity event directly to the outbox.
+--
+-- The ONE case where the queue is written to by hand instead of by a trigger. Activity
+-- events describe behaviour ("a widget was tapped"), not state, so they have no feature row
+-- for a trigger to fire on and nothing for SyncPayload to materialise at flush time — which
+-- is why, uniquely, they carry their payload inline.
+--
+-- userId is read from syncSession rather than passed in, so an event can never be attributed
+-- to the wrong account by a caller that cached a stale id. Events recorded just before the
+-- first authenticated attach temporarily get userId ''; SyncEngine.attach adopts only these
+-- inline activity rows once /v1/me identifies the account.
+--
+-- INSERT OR IGNORE, not OR REPLACE: the caller supplies a fresh uuid per event, so a
+-- collision means a genuine duplicate (a redelivered call) and dropping it is the point.
+enqueueActivity:
+INSERT OR IGNORE INTO syncEvent (
+    id, userId, feature, entity, entityId, operation, dedupeKey,
+    payload, metadata, deviceTime, timezone, status, retryCount, createdAt, updatedAt
+) VALUES (
+    ?,
+    (SELECT userId FROM syncSession WHERE id = 0),
+    ?, ?, ?, ?,
+    (SELECT userId FROM syncSession WHERE id = 0) || char(31) || ? || char(31) || ?,
+    ?, NULL, ?, ?, 'pending', 0, ?, ?
+);
+
+-- A first-run login can record its final mutation before /v1/me has returned the user id.
+-- Adopt only inline activity rows; trigger-generated state rows cannot exist while capture is
+-- disabled and must never be silently moved between accounts.
+adoptAnonymousActivities:
+UPDATE syncEvent
+SET userId = ?,
+    dedupeKey = ? || char(31) || entity || char(31) || entityId,
+    updatedAt = ?
+WHERE userId = '' AND status = 'pending' AND payload IS NOT NULL;
 
 -- Delivered (or rejected as permanently invalid): the row has done its job.
 ack:
@@ -183,9 +217,15 @@ INSERT OR REPLACE INTO syncPolicy(entity, feature, enabled) VALUES (?, ?, ?);
 
 -- ==== metrics ====
 
+-- Two statements rather than an upsert: the project builds on SQLDelight's default
+-- sqlite-3-18 dialect, which predates ON CONFLICT DO UPDATE. Triggers get away with
+-- upsert because they are raw SQL the engine executes at runtime and SQLDelight never
+-- parses them; anything in a .sq file must stay inside 3.18.
+ensureMetric:
+INSERT OR IGNORE INTO syncMetric(name, value) VALUES (?, 0);
+
 bumpMetric:
-INSERT INTO syncMetric(name, value) VALUES (?, ?)
-ON CONFLICT(name) DO UPDATE SET value = value + excluded.value;
+UPDATE syncMetric SET value = value + ? WHERE name = ?;
 
 allMetrics:
 SELECT name, value FROM syncMetric;

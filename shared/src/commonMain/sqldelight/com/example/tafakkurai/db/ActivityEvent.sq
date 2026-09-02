@@ -1,0 +1,47 @@
+-- Durable local activity history.
+--
+-- `syncEvent` is an outbox and delivered rows are intentionally deleted. It therefore
+-- cannot be used as the source of truth for Today's plan, Balance, streaks or insights.
+-- This table keeps the immutable fact locally while ActivityLog separately enqueues the
+-- same event for the backend. SyncSchema excludes this table from trigger capture so one
+-- action cannot be uploaded twice.
+CREATE TABLE activityEvent (
+    id            TEXT NOT NULL PRIMARY KEY,
+    userId        TEXT NOT NULL DEFAULT '',
+    feature       TEXT NOT NULL,
+    type          TEXT NOT NULL,
+    entityId      TEXT NOT NULL,
+    occurredAt    INTEGER NOT NULL,
+    localDate     TEXT NOT NULL,
+    timezone      TEXT NOT NULL,
+    source        TEXT NOT NULL DEFAULT 'user',
+    schemaVersion INTEGER NOT NULL DEFAULT 1,
+    properties    TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX activityEvent_date ON activityEvent(localDate, occurredAt DESC);
+CREATE INDEX activityEvent_feature ON activityEvent(feature, type, localDate);
+
+insertEvent:
+INSERT OR IGNORE INTO activityEvent (
+    id, userId, feature, type, entityId, occurredAt, localDate, timezone,
+    source, schemaVersion, properties
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectById:
+SELECT * FROM activityEvent WHERE id = ?;
+
+selectRecent:
+SELECT * FROM activityEvent ORDER BY occurredAt DESC LIMIT ?;
+
+selectForDate:
+SELECT * FROM activityEvent WHERE localDate = ? ORDER BY occurredAt ASC;
+
+selectLearningScopeEvents:
+SELECT * FROM activityEvent
+WHERE (feature = 'quran' AND type IN ('surah_started', 'ayah_marked_read', 'ayah_listened'))
+   OR (feature = 'hifz' AND type IN ('ayahs_enrolled', 'ayah_reviewed'))
+ORDER BY occurredAt ASC, id ASC;
+
+adoptAnonymousUser:
+UPDATE activityEvent SET userId = ? WHERE userId = '';

@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -30,6 +32,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.tafakkurai.i18n.tr
 import com.example.tafakkurai.ui.*
 import kotlin.math.PI
 import kotlin.math.cos
@@ -123,7 +126,12 @@ fun BreathingOrb(size: Int, accent: Color, purple: Color, modifier: Modifier = M
 @Composable
 fun PageDots(count: Int, index: Int, accent: Color) {
     val c = LocalTf.current
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    val description = tr("onb.page_indicator_a11y", index + 1, count)
+    Row(
+        modifier = Modifier.semantics { contentDescription = description },
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         repeat(count) { i ->
             val on = i == index
             Box(
@@ -164,7 +172,7 @@ fun OnbCta(label: String, accent: Color, arrow: Boolean = true, onClick: () -> U
 fun SkipButton(onClick: () -> Unit) {
     val c = LocalTf.current
     Box(Modifier.then(pressScale(onClick, 0.92f)).padding(8.dp)) {
-        TfText("Oʻtkazish", color = c.fg3, size = 14f, weight = FontWeight.Medium)
+        TfText(tr("onb.skip"), color = c.fg3, size = 14f, weight = FontWeight.Medium)
     }
 }
 
@@ -184,7 +192,7 @@ fun PillChip(text: String, accent: Color) {
 }
 
 // ── Sub-feature tile ─────────────────────────────────────────────────────────
-data class AspectTile(val icon: String, val name: String, val sub: String)
+data class AspectTile(val icon: String, val titleKey: String, val subtitleKey: String)
 
 @Composable
 fun AspectTileView(tile: AspectTile, accent: Color, modifier: Modifier = Modifier) {
@@ -201,8 +209,8 @@ fun AspectTileView(tile: AspectTile, accent: Color, modifier: Modifier = Modifie
             Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(accent.soft(0.16f)),
             contentAlignment = Alignment.Center,
         ) { TfIcon(tile.icon, size = 19, color = accent) }
-        TfText(tile.name, color = c.fg, size = 13f, weight = FontWeight.SemiBold)
-        TfText(tile.sub.uppercase(), color = c.fg3, size = 9.5f, family = Fonts.mono, letterSpacing = 0.4f)
+        TfText(tr(tile.titleKey), color = c.fg, size = 13f, weight = FontWeight.SemiBold)
+        TfText(tr(tile.subtitleKey).uppercase(), color = c.fg3, size = 9.5f, family = Fonts.mono, letterSpacing = 0.4f)
     }
 }
 
@@ -227,7 +235,8 @@ fun BalanceRadar(axes: List<RadarAxis>, fill: Color, size: Int = 220) {
     val c = LocalTf.current
     val measurer = rememberTextMeasurer()
     val labelStyle = TextStyle(color = c.fg3, fontSize = 10.sp, fontFamily = Fonts.mono, fontWeight = FontWeight.SemiBold)
-    Canvas(Modifier.size(size.dp)) {
+    val description = tr("onb.balance_chart_a11y")
+    Canvas(Modifier.size(size.dp).semantics { contentDescription = description }) {
         val n = axes.size
         val cx = this.size.width / 2f
         val cy = this.size.height / 2f
@@ -288,12 +297,17 @@ fun PrayerDayRing(
     size: Int = 210,
 ) {
     val c = LocalTf.current
+    val nextLabel = tr("onb.prayer.next", nextName.uppercase())
+    val description = tr("onb.prayer_ring_a11y", nextName, countdown)
     fun sweep(fromMin: Int, toMin: Int): Pair<Float, Float> {
         val start = -90f + fromMin / 1440f * 360f
         val span = ((toMin - fromMin + 1440) % 1440) / 1440f * 360f
         return start to span
     }
-    Box(Modifier.size(size.dp), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier.size(size.dp).semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
         Canvas(Modifier.fillMaxSize()) {
             val stroke = 8f
             val inset = stroke / 2f + 2f
@@ -317,7 +331,7 @@ fun PrayerDayRing(
             drawCircle(c.bg1, radius = 2.5f, center = nowC)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            TfText("NEXT · ${nextName.uppercase()}", color = c.fg3, size = 10f, family = Fonts.mono, letterSpacing = 0.8f)
+            TfText(nextLabel, color = c.fg3, size = 10f, family = Fonts.mono, letterSpacing = 0.8f)
             TfText(countdown, color = c.fg, size = 26f, weight = FontWeight.Bold, family = Fonts.display)
         }
     }

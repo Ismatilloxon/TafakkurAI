@@ -114,7 +114,7 @@ private fun LanguageRow(language: Language, selected: Boolean, onClick: () -> Un
         Column(Modifier.weight(1f)) {
             TfText(language.nativeName, color = c.fg, size = 16f, weight = FontWeight.Medium)
             TfText(
-                language.englishName, color = c.fg3, size = 12f,
+                tr(language.detailKey), color = c.fg3, size = 12f,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }

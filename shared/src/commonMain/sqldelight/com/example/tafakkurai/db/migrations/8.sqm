@@ -1,0 +1,80 @@
+-- v8 → v9: the Habits module.
+--
+-- Mirrors Habit.sq, HabitEntry.sq, HabitNote.sq and HabitAchievement.sq exactly, so an
+-- upgrading install ends up with the schema a fresh install gets from Schema.create().
+-- IF NOT EXISTS guards the dev case where a fresh install already created these.
+--
+-- No data migration: these tables are new. THABITS in Data.kt was a hardcoded four-item
+-- mock with no persistence, so there is nothing to carry forward — the first launch after
+-- this migration shows the Habits empty state and its template chips.
+--
+-- SYNC: nothing to register. SyncEngine.attach() rediscovers the table list on the next
+-- launch, finds these four, installs triggers and backfills any rows that predate the
+-- triggers (SyncSchema.backfill). The feature LABEL is set separately by HabitStore, which
+-- writes syncPolicy rows so all four report as "habits" rather than as their own table
+-- names; that is cosmetic grouping only — the backend keys off `entity`, which is the
+-- table name and never varies.
+
+CREATE TABLE IF NOT EXISTS habit (
+    id              TEXT NOT NULL PRIMARY KEY,
+    name            TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    categoryId      TEXT NOT NULL DEFAULT 'custom',
+    colorKey        TEXT NOT NULL DEFAULT 'teal',
+    icon            TEXT NOT NULL DEFAULT 'sparkles',
+    slot            TEXT NOT NULL DEFAULT 'anytime',
+    timeLocal       TEXT NOT NULL DEFAULT '',
+    reminderEnabled INTEGER NOT NULL DEFAULT 0,
+    reminderTime    TEXT NOT NULL DEFAULT '',
+    smartTiming     INTEGER NOT NULL DEFAULT 0,
+    frequency       TEXT NOT NULL DEFAULT 'daily',
+    weekdays        TEXT NOT NULL DEFAULT '[]',
+    difficulty      TEXT NOT NULL DEFAULT 'medium',
+    goalType        TEXT NOT NULL DEFAULT 'check',
+    goalTarget      INTEGER NOT NULL DEFAULT 1,
+    goalUnit        TEXT NOT NULL DEFAULT '',
+    motivation      TEXT NOT NULL DEFAULT '',
+    state           TEXT NOT NULL DEFAULT 'active',
+    pausedUntil     TEXT NOT NULL DEFAULT '',
+    sortIndex       INTEGER NOT NULL DEFAULT 0,
+    createdAt       INTEGER NOT NULL,
+    updatedAt       INTEGER NOT NULL,
+    deleted         INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS habit_state ON habit(deleted, state, sortIndex);
+
+CREATE TABLE IF NOT EXISTS habitEntry (
+    id          TEXT NOT NULL PRIMARY KEY,
+    habitId     TEXT NOT NULL,
+    dateKey     TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    value       INTEGER NOT NULL DEFAULT 0,
+    target      INTEGER NOT NULL DEFAULT 1,
+    skipReason  TEXT NOT NULL DEFAULT '',
+    completedAt INTEGER NOT NULL DEFAULT 0,
+    createdAt   INTEGER NOT NULL,
+    updatedAt   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS habitEntry_date ON habitEntry(dateKey);
+CREATE INDEX IF NOT EXISTS habitEntry_habit ON habitEntry(habitId, dateKey);
+
+CREATE TABLE IF NOT EXISTS habitNote (
+    id        TEXT NOT NULL PRIMARY KEY,
+    habitId   TEXT NOT NULL,
+    dateKey   TEXT NOT NULL,
+    body      TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    deleted   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS habitNote_habit ON habitNote(deleted, habitId, createdAt);
+
+CREATE TABLE IF NOT EXISTS habitAchievement (
+    id         TEXT NOT NULL PRIMARY KEY,
+    unlockedAt INTEGER NOT NULL DEFAULT 0,
+    progress   REAL NOT NULL DEFAULT 0.0,
+    updatedAt  INTEGER NOT NULL
+);

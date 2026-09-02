@@ -1,0 +1,8 @@
+/* Тизим рухсат сўровлари. iOS уларни иловада танланган тил эмас, қурилма тили
+   бўйича кўрсатади, шунинг учун бу матнлар ҳам алоҳида таржима қилинади. */
+
+"NSLocationWhenInUseUsageDescription" = "TafakkurAI жойлашувингиздан аниқ намоз вақтларини ҳисоблаш учун фойдаланади.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "TafakkurAI жойлашувингиздан аниқ намоз вақтларини ҳисоблаш учун фойдаланади.";
+"NSPhotoLibraryUsageDescription" = "Профил расмини ўрнатишингиз учун TafakkurAI суратларингизга кириш сўрайди.";
+"NSLocalNetworkUsageDescription" = "TafakkurAI маҳаллий тармоғингиздаги дастурлаш серверига уланади.";
+"NSHealthShareUsageDescription" = "TafakkurAI тикланиш ва уйқу тенденцияларини кўрсатиш учун уйқу босқичлари ва давомийлигини ўқийди.";

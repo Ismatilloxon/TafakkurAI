@@ -1,0 +1,92 @@
+-- Social wellbeing is useful without exposing an address book. Users explicitly add only the
+-- people they want to remember, and notes stay in their private synced account state.
+CREATE TABLE socialCircleMembership (
+    circleId  TEXT NOT NULL PRIMARY KEY,
+    joined    INTEGER NOT NULL DEFAULT 0,
+    updatedAt INTEGER NOT NULL
+);
+
+CREATE TABLE socialConnection (
+    id              TEXT NOT NULL PRIMARY KEY,
+    name            TEXT NOT NULL,
+    relationshipId  TEXT NOT NULL,
+    lastContactDate TEXT NOT NULL DEFAULT '',
+    createdAt       INTEGER NOT NULL,
+    updatedAt       INTEGER NOT NULL,
+    deleted         INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX socialConnection_active
+    ON socialConnection(deleted, lastContactDate DESC, name);
+
+CREATE TABLE socialCheckIn (
+    id           TEXT NOT NULL PRIMARY KEY,
+    connectionId TEXT NOT NULL,
+    note         TEXT NOT NULL DEFAULT '',
+    dateKey      TEXT NOT NULL,
+    createdAt    INTEGER NOT NULL,
+    deleted      INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(connectionId, dateKey)
+);
+
+CREATE INDEX socialCheckIn_connection
+    ON socialCheckIn(deleted, connectionId, dateKey DESC, createdAt DESC);
+
+CREATE TABLE socialPostPreference (
+    postId     TEXT NOT NULL PRIMARY KEY,
+    liked      INTEGER NOT NULL DEFAULT 0,
+    bookmarked INTEGER NOT NULL DEFAULT 0,
+    updatedAt  INTEGER NOT NULL
+);
+
+setCircleMembership:
+INSERT OR REPLACE INTO socialCircleMembership(circleId, joined, updatedAt) VALUES (?, ?, ?);
+
+selectCircleMemberships:
+SELECT * FROM socialCircleMembership ORDER BY circleId;
+
+upsertConnection:
+INSERT OR REPLACE INTO socialConnection (
+    id, name, relationshipId, lastContactDate, createdAt, updatedAt, deleted
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectConnections:
+SELECT * FROM socialConnection
+WHERE deleted = 0
+ORDER BY lastContactDate = '', lastContactDate DESC, name;
+
+selectConnectionById:
+SELECT * FROM socialConnection WHERE id = ?;
+
+markConnectionContacted:
+UPDATE socialConnection SET lastContactDate = ?, updatedAt = ? WHERE id = ? AND deleted = 0;
+
+softDeleteConnection:
+UPDATE socialConnection SET deleted = 1, updatedAt = ? WHERE id = ?;
+
+insertCheckIn:
+INSERT INTO socialCheckIn(id, connectionId, note, dateKey, createdAt, deleted)
+VALUES (?, ?, ?, ?, ?, 0);
+
+selectCheckIns:
+SELECT * FROM socialCheckIn
+WHERE deleted = 0
+ORDER BY dateKey DESC, createdAt DESC;
+
+selectCheckInsForConnection:
+SELECT * FROM socialCheckIn
+WHERE deleted = 0 AND connectionId = ?
+ORDER BY dateKey DESC, createdAt DESC;
+
+softDeleteCheckInsForConnection:
+UPDATE socialCheckIn SET deleted = 1 WHERE connectionId = ?;
+
+upsertPostPreference:
+INSERT OR REPLACE INTO socialPostPreference(postId, liked, bookmarked, updatedAt)
+VALUES (?, ?, ?, ?);
+
+selectPostPreferences:
+SELECT * FROM socialPostPreference ORDER BY updatedAt DESC;
+
+selectPostPreference:
+SELECT * FROM socialPostPreference WHERE postId = ?;

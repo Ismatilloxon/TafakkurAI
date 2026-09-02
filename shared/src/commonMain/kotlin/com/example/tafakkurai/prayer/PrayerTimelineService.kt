@@ -4,7 +4,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.example.tafakkurai.PrayerTime
-import com.example.tafakkurai.TPRAYERS
 import com.example.tafakkurai.location.Coordinates
 import com.example.tafakkurai.location.PrayerLocationManager
 import kotlinx.coroutines.withTimeoutOrNull
@@ -20,22 +19,22 @@ interface PrayerScheduleRepository {
 }
 
 /**
- * Default repository backed by the bundled static schedule ([TPRAYERS]). Swap this
- * for an API-backed implementation without touching the calculator or ViewModel.
+ * Honest fallback used while location is unavailable. An empty schedule is rendered as an
+ * explicit permission/unavailable state; prayer times for an unrelated city are never invented.
  */
-class StaticPrayerScheduleRepository : PrayerScheduleRepository {
-    override fun schedule(dayOffset: Int): List<PrayerTime> = TPRAYERS
+class UnavailablePrayerScheduleRepository : PrayerScheduleRepository {
+    override fun schedule(dayOffset: Int): List<PrayerTime> = emptyList()
 }
 
 /**
  * Computes the schedule from the device location using [IslomUzPrayerCalculator]. Call
  * [refresh] (suspending) to fetch coordinates before rendering; [schedule] stays
- * synchronous so the timeline/ViewModel are untouched. Falls back to [TPRAYERS]
- * until a fix is available or if permission is denied.
+ * synchronous so the timeline/ViewModel are untouched. Until a fix is available, callers
+ * receive an empty schedule and show an explicit unavailable state.
  */
 class LocationPrayerScheduleRepository(
     private val locationManager: PrayerLocationManager,
-    private val fallback: PrayerScheduleRepository = StaticPrayerScheduleRepository(),
+    private val fallback: PrayerScheduleRepository = UnavailablePrayerScheduleRepository(),
 ) : PrayerScheduleRepository {
 
     /**
@@ -96,7 +95,7 @@ class LocationPrayerScheduleRepository(
  * the requested "switch to tomorrow after Isha" behaviour for free.
  */
 class PrayerTimelineService(
-    private val repository: PrayerScheduleRepository = StaticPrayerScheduleRepository(),
+    private val repository: PrayerScheduleRepository = UnavailablePrayerScheduleRepository(),
 ) {
     fun timeline(): List<PrayerInstant> {
         // Sunrise is a landmark, not a salah, so it must not split the Fajr→Dhuhr gap

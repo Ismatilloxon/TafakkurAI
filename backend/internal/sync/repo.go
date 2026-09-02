@@ -70,38 +70,122 @@ func (r *Repo) Policies(ctx context.Context) (map[string]Strategy, error) {
 // batch, never one per event: 100 events become one commit and one fsync.
 func (r *Repo) Begin(ctx context.Context) (pgx.Tx, error) { return r.pool.Begin(ctx) }
 
-// ClaimEvents inserts the batch's ids into the idempotency ledger and returns the set
-// that was actually new. A replayed batch returns an empty set and applies nothing,
-// which is what makes at-least-once delivery from the device safe.
-func (r *Repo) ClaimEvents(ctx context.Context, tx pgx.Tx, userID uuid.UUID, events []Event) (map[string]bool, error) {
+type claimOutcome uint8
+
+const (
+	claimFresh claimOutcome = iota + 1
+	claimDuplicate
+	claimConflict
+)
+
+// ClaimEvents inserts the batch's ids into the per-user idempotency ledger. A matching
+// hash is a replay; a different hash is a rejected UUID collision rather than a silent
+// overwrite. Claiming and projecting use the caller's transaction, so neither can commit
+// without the other.
+func (r *Repo) ClaimEvents(ctx context.Context, tx pgx.Tx, userID uuid.UUID, events []Event) (map[string]claimOutcome, error) {
 	ids := make([]string, 0, len(events))
+	features := make([]string, 0, len(events))
 	entities := make([]string, 0, len(events))
+	entityIDs := make([]string, 0, len(events))
+	hashes := make([]string, 0, len(events))
 	for i := range events {
+		fingerprint, err := events[i].fingerprint()
+		if err != nil {
+			return nil, fmt.Errorf("fingerprint sync event %s: %w", events[i].ID, err)
+		}
 		ids = append(ids, events[i].ID)
+		features = append(features, events[i].Feature)
 		entities = append(entities, events[i].Entity)
+		entityIDs = append(entityIDs, events[i].EntityID)
+		hashes = append(hashes, fingerprint)
 	}
 
 	rows, err := tx.Query(ctx, `
-		INSERT INTO sync_event_log (event_id, user_id, entity)
-		SELECT t.id::uuid, $1, t.entity
-		FROM unnest($2::text[], $3::text[]) AS t(id, entity)
-		ON CONFLICT (event_id) DO NOTHING
+		INSERT INTO sync_event_log
+			(event_id, user_id, feature, entity, entity_id, event_hash)
+		SELECT t.id::uuid, $1, t.feature, t.entity, t.entity_id, t.event_hash
+		FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
+			AS t(id, feature, entity, entity_id, event_hash)
+		ON CONFLICT (user_id, event_id) DO NOTHING
 		RETURNING event_id`,
-		userID, ids, entities)
+		userID, ids, features, entities, entityIDs, hashes)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	fresh := make(map[string]bool, len(events))
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		fresh[id.String()] = true
 	}
-	return fresh, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	storedRows, err := tx.Query(ctx, `
+		SELECT event_id, entity, event_hash
+		FROM sync_event_log
+		WHERE user_id = $1
+		  AND event_id IN (
+		      SELECT candidate.id::uuid
+		      FROM unnest($2::text[]) AS candidate(id)
+		  )`, userID, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer storedRows.Close()
+
+	type storedIdentity struct {
+		entity string
+		hash   *string
+	}
+	stored := make(map[string]storedIdentity, len(events))
+	for storedRows.Next() {
+		var id uuid.UUID
+		var identity storedIdentity
+		if err := storedRows.Scan(&id, &identity.entity, &identity.hash); err != nil {
+			return nil, err
+		}
+		stored[id.String()] = identity
+	}
+	if err := storedRows.Err(); err != nil {
+		return nil, err
+	}
+
+	outcomes := make(map[string]claimOutcome, len(events))
+	for i := range events {
+		e := events[i]
+		if fresh[e.ID] {
+			outcomes[e.ID] = claimFresh
+			continue
+		}
+		identity, ok := stored[e.ID]
+		if !ok {
+			return nil, fmt.Errorf("sync event %s was neither inserted nor found", e.ID)
+		}
+		// Rows created before migration 0014 have no semantic hash. Their entity is
+		// still enough to reject a cross-contract reuse, while preserving old replays.
+		if identity.hash == nil {
+			if identity.entity == e.Entity {
+				outcomes[e.ID] = claimDuplicate
+			} else {
+				outcomes[e.ID] = claimConflict
+			}
+			continue
+		}
+		if *identity.hash == hashes[i] {
+			outcomes[e.ID] = claimDuplicate
+		} else {
+			outcomes[e.ID] = claimConflict
+		}
+	}
+	return outcomes, nil
 }
 
 // applyKey identifies a row written by Apply, so results can be matched back to events.
@@ -225,20 +309,26 @@ func (r *Repo) Changes(ctx context.Context, userID uuid.UUID, cursor int64, limi
 // HeadSeq is the newest cursor for this user. A fresh device calls it to learn where
 // the feed ends before deciding whether a full backfill is worth doing eagerly.
 func (r *Repo) HeadSeq(ctx context.Context, userID uuid.UUID) (int64, error) {
+	return headSeq(ctx, r.pool, userID)
+}
+
+// HeadSeqTx reads the response cursor from the same snapshot as the just-written
+// projections. A query failure therefore rolls the whole batch back instead of returning
+// a committed write with an invented cursor.
+func (r *Repo) HeadSeqTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (int64, error) {
+	return headSeq(ctx, tx, userID)
+}
+
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func headSeq(ctx context.Context, querier rowQuerier, userID uuid.UUID) (int64, error) {
 	var seq *int64
-	err := r.pool.QueryRow(ctx,
+	err := querier.QueryRow(ctx,
 		`SELECT max(seq) FROM entity_state WHERE user_id = $1`, userID).Scan(&seq)
 	if err != nil || seq == nil {
 		return 0, err
 	}
 	return *seq, nil
-}
-
-// PruneEventLog drops idempotency rows older than the retention window. An event that
-// old will never be retried by any client, so keeping it only costs storage.
-func (r *Repo) PruneEventLog(ctx context.Context, olderThan time.Duration) (int64, error) {
-	tag, err := r.pool.Exec(ctx,
-		`DELETE FROM sync_event_log WHERE received_at < now() - $1::interval`,
-		fmt.Sprintf("%d seconds", int(olderThan.Seconds())))
-	return tag.RowsAffected(), err
 }

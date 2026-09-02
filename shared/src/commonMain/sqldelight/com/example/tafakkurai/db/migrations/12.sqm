@@ -1,0 +1,19 @@
+CREATE TABLE IF NOT EXISTS quranQuizGoal (
+    surahNumber INTEGER NOT NULL CHECK(surahNumber BETWEEN 1 AND 114),
+    source TEXT NOT NULL CHECK(source IN ('quran', 'hifz')),
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY(surahNumber, source)
+);
+
+CREATE TABLE IF NOT EXISTS quranQuizAttempt (
+    id TEXT NOT NULL PRIMARY KEY,
+    surahNumber INTEGER NOT NULL CHECK(surahNumber BETWEEN 1 AND 114),
+    correct INTEGER NOT NULL CHECK(correct >= 0),
+    total INTEGER NOT NULL CHECK(total > 0),
+    completedAt INTEGER NOT NULL,
+    CHECK(correct <= total)
+);
+
+CREATE INDEX IF NOT EXISTS quranQuizAttempt_surah_time
+ON quranQuizAttempt(surahNumber, completedAt DESC);

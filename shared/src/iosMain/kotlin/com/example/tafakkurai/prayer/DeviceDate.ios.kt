@@ -22,3 +22,5 @@ actual fun deviceDate(dayOffset: Int): CalendarDate {
 
 actual fun deviceUtcOffsetHours(): Double =
     NSTimeZone.localTimeZone.secondsFromGMT / 3600.0
+
+actual fun deviceTimeZoneId(): String = platform.Foundation.NSTimeZone.localTimeZone.name

@@ -10,6 +10,7 @@ import uz.tafakkur.data.dto.HifzGradeRequestDto
 import uz.tafakkur.data.dto.CoachDeltaDto
 import uz.tafakkur.data.dto.CoachDoneDto
 import uz.tafakkur.data.dto.CoachErrorDto
+import uz.tafakkur.data.dto.CompleteLessonRequestDto
 import uz.tafakkur.data.dto.CreateEntryRequestDto
 import uz.tafakkur.data.dto.MessageRequestDto
 import uz.tafakkur.data.dto.PrayerSettingsDto
@@ -31,10 +32,12 @@ import uz.tafakkur.domain.model.AuthProvider
 import uz.tafakkur.domain.model.AuthSession
 import uz.tafakkur.domain.model.CoachEvent
 import uz.tafakkur.domain.model.CoachHistory
+import uz.tafakkur.domain.model.CompleteLessonCommand
 import uz.tafakkur.domain.model.FeedPage
 import uz.tafakkur.domain.model.Gamification
 import uz.tafakkur.domain.model.GoogleLogin
 import uz.tafakkur.domain.model.Lesson
+import uz.tafakkur.domain.model.LessonCompletion
 import uz.tafakkur.domain.model.LikeResult
 import uz.tafakkur.domain.model.Me
 import uz.tafakkur.domain.model.PrayerTimes
@@ -301,9 +304,24 @@ class LearnRepositoryImpl(
     override suspend fun lesson(lessonId: String): Lesson =
         executor.call(CallInfo("GET", "v1/lessons/$lessonId")) { api.lesson(lessonId).toDomain() }
 
-    override suspend fun complete(lessonId: String): Gamification =
+    override suspend fun complete(
+        lessonId: String,
+        command: CompleteLessonCommand,
+    ): LessonCompletion =
         executor.call(CallInfo("POST", "v1/lessons/$lessonId/complete"), successKey = FeedbackKeys.LESSON_COMPLETED) {
-            api.complete(lessonId).gamification.toDomain()
+            val response = api.complete(
+                lessonId,
+                CompleteLessonRequestDto(command.eventId, command.localDate, command.timezone),
+            )
+            val canonical = response.completion
+            LessonCompletion(
+                eventId = canonical?.eventId ?: command.eventId,
+                lessonId = canonical?.lessonId ?: lessonId,
+                localDate = canonical?.localDate ?: command.localDate,
+                timezone = canonical?.timezone ?: command.timezone,
+                completedAt = canonical?.completedAt.orEmpty(),
+                gamification = response.gamification.toDomain(),
+            )
         }
 }
 

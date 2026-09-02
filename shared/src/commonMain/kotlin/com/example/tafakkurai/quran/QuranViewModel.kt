@@ -89,7 +89,7 @@ class QuranViewModel(
             failure = null
             runCatching { repository.getSurahs() }
                 .onSuccess { catalog = it }
-                .onFailure { failure = "Couldn't load the Qurʼan index." }
+                .onFailure { failure = "quran.index.load_failed" }
             loading = false
         }
     }

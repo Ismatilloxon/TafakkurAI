@@ -1,0 +1,61 @@
+-- v9 → v10: durable local activity history.
+--
+-- The sync outbox deletes delivered rows, so it cannot be a product read model. These
+-- immutable rows remain on-device and power connected Today/Balance/habit projections.
+-- ActivityLog still sends one inline outbox event; SyncSchema explicitly excludes this
+-- table from automatic trigger capture to prevent duplicate uploads.
+CREATE TABLE IF NOT EXISTS activityEvent (
+    id            TEXT NOT NULL PRIMARY KEY,
+    userId        TEXT NOT NULL DEFAULT '',
+    feature       TEXT NOT NULL,
+    type          TEXT NOT NULL,
+    entityId      TEXT NOT NULL,
+    occurredAt    INTEGER NOT NULL,
+    localDate     TEXT NOT NULL,
+    timezone      TEXT NOT NULL,
+    source        TEXT NOT NULL DEFAULT 'user',
+    schemaVersion INTEGER NOT NULL DEFAULT 1,
+    properties    TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS activityEvent_date
+    ON activityEvent(localDate, occurredAt DESC);
+CREATE INDEX IF NOT EXISTS activityEvent_feature
+    ON activityEvent(feature, type, localDate);
+
+-- Device-local avatar cache. Never captured by SyncSchema; the server syncs the object URL.
+CREATE TABLE IF NOT EXISTS profilePhoto (
+    id        INTEGER NOT NULL PRIMARY KEY CHECK (id = 0),
+    bytes     BLOB NOT NULL,
+    updatedAt INTEGER NOT NULL
+);
+
+-- Local-first productivity tasks. A tombstone carries deletes through offline sync.
+CREATE TABLE IF NOT EXISTS task (
+    id          TEXT NOT NULL PRIMARY KEY,
+    title       TEXT NOT NULL,
+    notes       TEXT NOT NULL DEFAULT '',
+    categoryId  TEXT NOT NULL DEFAULT 'personal',
+    priority    TEXT NOT NULL DEFAULT 'medium',
+    dueDate     TEXT NOT NULL DEFAULT '',
+    dueTime     TEXT NOT NULL DEFAULT '',
+    completedAt INTEGER,
+    origin      TEXT NOT NULL DEFAULT 'user',
+    createdAt   INTEGER NOT NULL,
+    updatedAt   INTEGER NOT NULL,
+    deleted     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS task_due
+    ON task(deleted, dueDate, dueTime, completedAt);
+
+-- Device-only, user-supplied vocabulary source text. This table is deliberately excluded
+-- from generic sync; generated flashcards are normal synced rows, the source document is not.
+CREATE TABLE IF NOT EXISTS vocabularySource (
+    id              TEXT NOT NULL PRIMARY KEY,
+    normalizedTitle TEXT NOT NULL UNIQUE,
+    title           TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    createdAt       INTEGER NOT NULL,
+    updatedAt       INTEGER NOT NULL
+);

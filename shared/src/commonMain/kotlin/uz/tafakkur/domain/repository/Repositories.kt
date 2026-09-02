@@ -5,10 +5,12 @@ import uz.tafakkur.domain.model.AuthProvider
 import uz.tafakkur.domain.model.AuthSession
 import uz.tafakkur.domain.model.CoachEvent
 import uz.tafakkur.domain.model.CoachHistory
+import uz.tafakkur.domain.model.CompleteLessonCommand
 import uz.tafakkur.domain.model.FeedPage
 import uz.tafakkur.domain.model.Gamification
 import uz.tafakkur.domain.model.GoogleLogin
 import uz.tafakkur.domain.model.Lesson
+import uz.tafakkur.domain.model.LessonCompletion
 import uz.tafakkur.domain.model.LikeResult
 import uz.tafakkur.domain.model.Me
 import uz.tafakkur.domain.model.PrayerTimes
@@ -93,7 +95,7 @@ interface LearnRepository {
     suspend fun subjects(): List<Subject>
     suspend fun lessons(subjectId: String): List<Lesson>
     suspend fun lesson(lessonId: String): Lesson
-    suspend fun complete(lessonId: String): Gamification
+    suspend fun complete(lessonId: String, command: CompleteLessonCommand): LessonCompletion
 }
 
 interface TrackerRepository {

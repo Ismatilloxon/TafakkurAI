@@ -1,0 +1,34 @@
+-- Device-local cache of the selected profile photo.
+--
+-- The backend owns the canonical object URL. Keeping the compressed bytes locally makes
+-- the avatar survive an offline relaunch and avoids downloading the user's own image on
+-- every screen. SyncSchema excludes this private BLOB from the generic row sync.
+CREATE TABLE profilePhoto (
+    id               INTEGER NOT NULL PRIMARY KEY CHECK (id = 0),
+    bytes            BLOB NOT NULL,
+    updatedAt        INTEGER NOT NULL,
+    revision         INTEGER NOT NULL DEFAULT 1,
+    uploadedRevision INTEGER NOT NULL DEFAULT 0,
+    remoteUrl        TEXT
+);
+
+savePhoto:
+INSERT OR REPLACE INTO profilePhoto(
+    id, bytes, updatedAt, revision, uploadedRevision, remoteUrl
+) VALUES (0, ?, ?, ?, ?, ?);
+
+selectPhoto:
+SELECT bytes FROM profilePhoto WHERE id = 0;
+
+selectPhotoState:
+SELECT bytes, revision, uploadedRevision, remoteUrl
+FROM profilePhoto
+WHERE id = 0;
+
+markPhotoUploaded:
+UPDATE profilePhoto
+SET uploadedRevision = revision, remoteUrl = ?
+WHERE id = 0 AND revision = ?;
+
+clearPhoto:
+DELETE FROM profilePhoto WHERE id = 0;

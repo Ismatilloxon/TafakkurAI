@@ -101,7 +101,31 @@ sealed interface CoachEvent {
 }
 
 data class Subject(val id: String, val title: String, val description: String, val orderIndex: Int)
-data class Lesson(val id: String, val subjectId: String, val title: String, val body: String, val orderIndex: Int)
+data class Lesson(
+    val id: String,
+    val subjectId: String,
+    val title: String,
+    val body: String,
+    val orderIndex: Int,
+    val completed: Boolean = false,
+)
+
+/** Stable command metadata captured before a lesson-completion request starts. */
+data class CompleteLessonCommand(
+    val eventId: String,
+    val localDate: String,
+    val timezone: String,
+)
+
+/** Canonical server result. Replays return the first event/date/progression values. */
+data class LessonCompletion(
+    val eventId: String,
+    val lessonId: String,
+    val localDate: String,
+    val timezone: String,
+    val completedAt: String,
+    val gamification: Gamification,
+)
 
 data class TrackerEntry(
     val id: String,

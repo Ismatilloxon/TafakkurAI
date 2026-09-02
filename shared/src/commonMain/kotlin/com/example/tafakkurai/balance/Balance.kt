@@ -50,6 +50,16 @@ data class BalanceInput(
     /** Flashcards waiting for review and cards already learned. */
     val cardsLearned: Int = 0,
     val cardsDue: Int = 0,
+    /**
+     * Distinct, durable learning actions recorded today. `null` means the activity-event
+     * source is unavailable; `0` means it was observed and contains no qualifying action.
+     */
+    val educationalActivitiesToday: Int? = null,
+    /** Completed connected activities today. Null means this install has no source yet. */
+    val spiritualActivitiesToday: Int? = null,
+    val physicalActivitiesToday: Int? = null,
+    val socialActivitiesToday: Int? = null,
+    val financialActivitiesToday: Int? = null,
 )
 
 /**
@@ -65,37 +75,54 @@ fun computeBalance(input: BalanceInput): List<BalanceScore> {
     val breadth = saturate(input.surahsStarted, full = QURAN_SURAH_TARGET)
     val gratitude = (input.gratitudeDaysThisWeek / 7f).coerceIn(0f, 1f)
     val cards = saturate(input.cardsLearned, full = CARD_TARGET)
+    val spiritualActivity = input.spiritualActivitiesToday
+        ?.let { saturate(it, full = DAILY_ACTIVITY_TARGET) }
+        ?: 0f
+    val physical = input.physicalActivitiesToday?.let { saturate(it, full = DAILY_ACTIVITY_TARGET) }
+    val financial = input.financialActivitiesToday?.let { saturate(it, full = DAILY_ACTIVITY_TARGET) }
+    val socialActivity = input.socialActivitiesToday?.let { saturate(it, full = DAILY_ACTIVITY_TARGET) } ?: 0f
 
     val spiritual = weighted(
-        prayer to 0.45f,
-        input.dhikrProgress.coerceIn(0f, 1f) to 0.20f,
-        input.adhkarProgress.coerceIn(0f, 1f) to 0.20f,
-        quran to 0.15f,
+        prayer to 0.40f,
+        input.dhikrProgress.coerceIn(0f, 1f) to 0.18f,
+        input.adhkarProgress.coerceIn(0f, 1f) to 0.18f,
+        quran to 0.14f,
+        spiritualActivity to 0.10f,
     )
-    val educational = weighted(
+    val educationalBase = weighted(
         quran to 0.35f,
         breadth to 0.25f,
         cards to 0.40f,
     )
+    // Preserve the established cumulative Qur'an/card score when today's event source is
+    // absent or honestly empty. A real daily action can only raise that score, with
+    // diminishing returns and without overpowering the longer-term evidence.
+    val educational = input.educationalActivitiesToday
+        ?.let { saturate(it, full = DAILY_ACTIVITY_TARGET) }
+        ?.let { activity -> evidenceBoost(educationalBase, activity, EDUCATIONAL_ACTIVITY_INFLUENCE) }
+        ?: educationalBase
     // Gratitude is the only relational practice the app records — who you are thankful for,
     // written down day after day. It is a partial signal and the detail line says so.
     val social = weighted(
-        gratitude to 0.7f,
-        saturate(input.gratitudeStreak, full = STREAK_TARGET) to 0.3f,
+        gratitude to 0.5f,
+        saturate(input.gratitudeStreak, full = STREAK_TARGET) to 0.2f,
+        socialActivity to 0.3f,
     )
 
     return listOf(
         BalanceScore(
-            "physical", "Physical", null,
-            "Not tracked yet — no activity, sleep or hydration data recorded.",
+            "physical", "Physical", physical,
+            if (physical == null) "Not tracked yet — no activity or sleep data recorded."
+            else "${input.physicalActivitiesToday} physical or recovery activities recorded today.",
         ),
         BalanceScore(
             "social", "Social", social,
             gratitudeDetail(input),
         ),
         BalanceScore(
-            "financial", "Financial", null,
-            "Not tracked yet — no income, spending or sadaqah recorded.",
+            "financial", "Financial", financial,
+            if (financial == null) "Not tracked yet — no income, spending or sadaqah recorded."
+            else "${input.financialActivitiesToday} financial activities recorded today.",
         ),
         BalanceScore(
             "educational", "Educational", educational,
@@ -131,15 +158,24 @@ private fun weighted(vararg parts: Pair<Float, Float>): Float {
         .coerceIn(0f, 1f)
 }
 
+/** Adds bounded new evidence without lowering the score when the observed count is zero. */
+private fun evidenceBoost(base: Float, evidence: Float, influence: Float): Float =
+    (base + (1f - base) * evidence.coerceIn(0f, 1f) * influence.coerceIn(0f, 1f))
+        .coerceIn(0f, 1f)
+
 private fun spiritualDetail(input: BalanceInput): String {
     val prayers = input.prayersOnTime + input.prayersInJamaat
     return "$prayers of 5 prayers marked today · dhikr ${(input.dhikrProgress * 100).toInt()}%" +
-        " · adhkar ${(input.adhkarProgress * 100).toInt()}% · ${input.ayahsRead} ayahs read"
+        " · adhkar ${(input.adhkarProgress * 100).toInt()}% · ${input.ayahsRead} ayahs read" +
+        (input.spiritualActivitiesToday?.takeIf { it > 0 }
+            ?.let { " · $it connected spiritual activities today" }
+            ?: "")
 }
 
 private fun educationalDetail(input: BalanceInput): String =
     "${input.ayahsRead} ayahs across ${input.surahsStarted} surahs · ${input.cardsLearned} cards learned" +
-        if (input.cardsDue > 0) " · ${input.cardsDue} due" else ""
+        (if (input.cardsDue > 0) " · ${input.cardsDue} due" else "") +
+        (input.educationalActivitiesToday?.let { " · $it recorded learning activities today" } ?: "")
 
 private fun gratitudeDetail(input: BalanceInput): String = when {
     input.gratitudeDaysThisWeek == 0 -> "From your gratitude journal — nothing written this week."
@@ -155,3 +191,9 @@ private const val QURAN_SURAH_TARGET = 10
 private const val CARD_TARGET = 60
 
 private const val STREAK_TARGET = 14
+
+/** Daily events complement, but never replace, longer-term Qur'an and card evidence. */
+private const val EDUCATIONAL_ACTIVITY_INFLUENCE = 0.35f
+
+/** Three distinct actions in one dimension is a full, intentionally attainable day. */
+private const val DAILY_ACTIVITY_TARGET = 3
