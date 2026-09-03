@@ -24,6 +24,12 @@ interface ProfilePhotoRepository {
     /** Uploads at most one pending revision; concurrent calls coalesce behind one request. */
     suspend fun retryPending(): ProfilePhotoUploadResult
 
+    /**
+     * Best-effort hydration from the canonical backend URL when no local selection is pending.
+     * Implementations must fetch public media without the Tafakkur API Authorization header.
+     */
+    suspend fun refreshFromRemote(remoteUrl: String?)
+
     /** Removes all account-owned local photo state during sign-out. */
     suspend fun clear()
 }

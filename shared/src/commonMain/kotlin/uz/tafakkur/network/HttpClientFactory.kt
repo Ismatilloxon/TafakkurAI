@@ -18,9 +18,11 @@ import io.ktor.client.request.setBody
 import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.encodedPath
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import uz.tafakkur.data.dto.RefreshRequestDto
 import uz.tafakkur.data.dto.RefreshResponseDto
@@ -67,7 +69,14 @@ fun createHttpClient(
                 tokens.accessToken()?.let { BearerTokens(it, tokens.refreshToken().orEmpty()) }
             }
             refreshTokens {
-                val rt = tokens.refreshToken() ?: return@refreshTokens null
+                // Ktor serialises bearer refreshes internally. If another request already
+                // invalidated the session, do not issue another refresh or keep retrying the
+                // original 401 with credentials that can never recover.
+                val rt = tokens.refreshToken()
+                if (rt == null) {
+                    tokens.clear()
+                    return@refreshTokens null
+                }
                 try {
                     val resp: RefreshResponseDto = client.post("v1/auth/refresh") {
                         markAsRefreshTokenRequest()
@@ -76,8 +85,13 @@ fun createHttpClient(
                     }.body()
                     tokens.update(resp.accessToken, rt)
                     BearerTokens(resp.accessToken, rt)
-                } catch (e: Exception) {
-                    tokens.clear()
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (failure: Throwable) {
+                    // Only an explicit rejection from the refresh endpoint ends the session.
+                    // Timeouts, DNS failures and 5xx responses are recoverable: retain both
+                    // tokens so the offline-first app can refresh after connectivity returns.
+                    if (failure.isUnauthorizedResponse()) tokens.clear()
                     null
                 }
             }
@@ -113,4 +127,19 @@ fun createHttpClient(
             )
         }
     }
+}
+
+/** Handles both the raw Ktor exception and our response-validator wrapper. */
+private fun Throwable.isUnauthorizedResponse(): Boolean {
+    var current: Throwable? = this
+    var depth = 0
+    while (current != null && depth < 8) {
+        if (current is ApiException && current.status == HttpStatusCode.Unauthorized.value) return true
+        if (current is ResponseException && current.response.status == HttpStatusCode.Unauthorized) return true
+        val next = current.cause
+        if (next === current) break
+        current = next
+        depth++
+    }
+    return false
 }

@@ -162,10 +162,31 @@ func (r *Repo) SetOnboardingDone(ctx context.Context, userID uuid.UUID) error {
 	return err
 }
 
-func (r *Repo) SetPhoto(ctx context.Context, userID uuid.UUID, url string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE profiles SET photo_url = $2, updated_at = now() WHERE user_id = $1`, userID, url)
-	return err
+func (r *Repo) SetPhoto(ctx context.Context, userID uuid.UUID, url string) (*string, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin photo replacement: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var previousURL *string
+	if err := tx.QueryRow(ctx,
+		`SELECT photo_url FROM profiles WHERE user_id = $1 FOR UPDATE`, userID,
+	).Scan(&previousURL); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("read previous photo: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE profiles SET photo_url = $2, updated_at = now() WHERE user_id = $1`, userID, url,
+	); err != nil {
+		return nil, fmt.Errorf("replace photo: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit photo replacement: %w", err)
+	}
+	return previousURL, nil
 }
 
 // SetPhone attaches an OTP-verified number to an account that signed in some

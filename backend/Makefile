@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://tafakkur:tafakkur@localhost:5432/tafakkur?sslmode=disable
 
-.PHONY: run build test lint migrate migrate-down sqlc tidy docker-up docker-down
+.PHONY: run build test test-integration lint sqlc tidy docker-up docker-down
 
 run: ## Run the API locally (auto-applies migrations on boot)
 	go run ./cmd/api
@@ -21,12 +21,6 @@ lint: ## Vet + golangci-lint (if installed)
 tidy:
 	go mod tidy
 
-migrate: ## Apply migrations with golang-migrate CLI (the API also auto-migrates on boot)
-	migrate -path migrations -database "$(DATABASE_URL)" up
-
-migrate-down:
-	migrate -path migrations -database "$(DATABASE_URL)" down 1
-
 sqlc: ## Regenerate typed queries (optional; repos currently use pgx directly)
 	sqlc generate
 
@@ -34,4 +28,4 @@ docker-up: ## Bring up api + postgres + minio
 	docker compose up --build -d
 
 docker-down:
-	docker compose down -v
+	docker compose down

@@ -23,6 +23,7 @@ var (
 	ErrOTPExpired         = errors.New("otp challenge expired")
 	ErrOTPTooManyAttempts = errors.New("too many otp attempts")
 	ErrOTPNotFound        = errors.New("otp challenge not found")
+	ErrSMSNotConfigured   = errors.New("sms delivery is not configured")
 )
 
 // SMSSender delivers the OTP code out of band.
@@ -50,6 +51,9 @@ func genCode() (string, error) {
 }
 
 func (o *OTP) Start(ctx context.Context, phone string) (uuid.UUID, error) {
+	if availability, ok := o.sender.(interface{ Available() bool }); ok && !availability.Available() {
+		return uuid.Nil, ErrSMSNotConfigured
+	}
 	phone = strings.TrimSpace(phone)
 	code, err := genCode()
 	if err != nil {
@@ -90,21 +94,22 @@ func (o *OTP) Verify(ctx context.Context, id uuid.UUID, code string) (string, er
 	return ch.Phone, nil
 }
 
-// NewSMSSender returns a Twilio sender when configured, else a dev logger that
-// prints the code (never use the logger in production).
+// NewSMSSender returns a Twilio sender when fully configured. The disabled
+// sender fails closed: OTP codes and phone numbers are never written to logs.
 func NewSMSSender(cfg config.Config) SMSSender {
-	if cfg.TwilioAccountSID != "" && cfg.TwilioAuthToken != "" {
+	if cfg.TwilioAccountSID != "" && cfg.TwilioAuthToken != "" && cfg.TwilioFrom != "" {
 		return &twilioSender{cfg: cfg, http: &http.Client{Timeout: 10 * time.Second}}
 	}
-	slog.Warn("phone OTP: Twilio not configured, using dev log sender (codes printed to logs)")
-	return logSender{}
+	slog.Warn("phone OTP disabled: SMS provider is not configured")
+	return disabledSMSSender{}
 }
 
-type logSender struct{}
+type disabledSMSSender struct{}
 
-func (logSender) Send(_ context.Context, to, body string) error {
-	slog.Info("DEV OTP", "to", to, "body", body)
-	return nil
+func (disabledSMSSender) Available() bool { return false }
+
+func (disabledSMSSender) Send(context.Context, string, string) error {
+	return ErrSMSNotConfigured
 }
 
 type twilioSender struct {

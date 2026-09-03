@@ -46,10 +46,8 @@ func (h *Handler) batch(w http.ResponseWriter, r *http.Request) {
 		platform.Error(w, http.StatusRequestEntityTooLarge, platform.CodePayloadTooLarge, "sync batch is too large")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBatchBodyBytes)
-
 	var in BatchRequest
-	if !platform.DecodeAndValidate(w, r, &in) {
+	if !platform.DecodeAndValidateLimit(w, r, &in, maxBatchBodyBytes) {
 		return
 	}
 	if len(in.Events) == 0 {

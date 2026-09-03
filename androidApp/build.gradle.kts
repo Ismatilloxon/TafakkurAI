@@ -40,9 +40,24 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    buildFeatures {
+        buildConfig = true
+    }
     buildTypes {
+        getByName("debug") {
+            buildConfigField(
+                "String",
+                "TAFAKKUR_API_BASE_URL",
+                "\"http://10.0.2.2:8080/\"",
+            )
+        }
         getByName("release") {
             isMinifyEnabled = false
+            buildConfigField(
+                "String",
+                "TAFAKKUR_API_BASE_URL",
+                "\"https://80-225-79-136.sslip.io/\"",
+            )
         }
     }
     compileOptions {

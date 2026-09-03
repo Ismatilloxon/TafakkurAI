@@ -1,3 +1,5 @@
 
-# Local dev secrets — production values go through `fly secrets set`.
+# Local and production secrets. Checked-in examples contain names only.
 .env
+.env.*
+!.env.example

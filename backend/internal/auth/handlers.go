@@ -210,7 +210,7 @@ func (h *Handler) otpStart(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := h.svc.StartOTP(r.Context(), req.Phone)
 	if err != nil {
-		platform.Error(w, http.StatusBadGateway, platform.CodeInternal, "could not send code")
+		writeAuthError(w, err)
 		return
 	}
 	platform.JSON(w, http.StatusOK, OTPStartResponse{VerificationID: id.String()})
@@ -264,6 +264,8 @@ func writeAuthError(w http.ResponseWriter, err error) {
 		platform.Error(w, http.StatusTooManyRequests, platform.CodeRateLimited, "too many attempts")
 	case errors.Is(err, ErrOTPNotFound):
 		platform.Error(w, http.StatusNotFound, platform.CodeNotFound, "verification not found")
+	case errors.Is(err, ErrSMSNotConfigured):
+		platform.Error(w, http.StatusServiceUnavailable, platform.CodeUnavailable, "phone sign-in is not configured")
 	case errors.Is(err, ErrOAuthNotConfigured):
 		platform.Error(w, http.StatusServiceUnavailable, platform.CodeUnavailable, "google sign-in not configured")
 	case errors.Is(err, ErrOAuthStateInvalid):

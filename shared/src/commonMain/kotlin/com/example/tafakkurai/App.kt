@@ -21,6 +21,7 @@ import com.example.tafakkurai.i18n.Strings
 import com.example.tafakkurai.prayer.LocationPrayerScheduleRepository
 import com.example.tafakkurai.prayer.currentSecondsOfDay
 import com.example.tafakkurai.profile.domain.ProfilePhotoRepository
+import com.example.tafakkurai.profile.domain.ProfilePhotoUploadResult
 import com.example.tafakkurai.spiritual.PrefPersistence
 import com.example.tafakkurai.prayer.deviceTimeZoneId
 import com.example.tafakkurai.integration.ActivityIntegrationCoordinator
@@ -54,6 +55,8 @@ import com.example.tafakkurai.vm.CoachViewModel
 import uz.tafakkur.core.feedback.silently
 import uz.tafakkur.domain.usecase.GetMeUseCase
 import uz.tafakkur.domain.usecase.IsLoggedInUseCase
+import uz.tafakkur.network.AuthSessionState
+import uz.tafakkur.network.TokenProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -173,6 +176,7 @@ fun App() {
     }
     val onbGate = remember { PrefOnboardingGate(getKoin().get()) }
     val isLoggedIn = remember { getKoin().get<IsLoggedInUseCase>() }
+    val tokens = remember { getKoin().get<TokenProvider>() }
 
     // A reinstall must land on the login screen. On iOS the Keychain survives the uninstall,
     // so without this the tokens of the previous install were still there and the gate below
@@ -184,8 +188,9 @@ fun App() {
     val languages = remember { getKoin().get<LanguageStore>() }
     // Seeded from the stored token rather than false. An expired access token still counts as
     // a session: the Ktor auth plugin refreshes it on the first 401 and only clears the tokens
-    // when the refresh itself fails.
+    // when the refresh endpoint explicitly rejects the refresh credential.
     var authed by remember { mutableStateOf(isLoggedIn()) }
+    val authSessionState by tokens.sessionState.collectAsState()
     // Every successful sign-out advances the ViewModel key-space. This prevents server-backed
     // profile/feed/coach state from one account being reused by the next account in-process.
     var sessionEpoch by remember { mutableIntStateOf(0) }
@@ -221,6 +226,30 @@ fun App() {
     val nav = remember { mutableStateListOf("today") }
     var navDirection by remember { mutableIntStateOf(0) }
     var sheetOpen by remember { mutableStateOf(false) }
+
+    fun closeAuthenticatedUi() {
+        // Token clearing and the Settings callback can arrive in either order. Keep this
+        // transition idempotent so one sign-out creates one fresh ViewModel key-space.
+        if (!authed) return
+        sessionEpoch++
+        authed = false
+        sheetOpen = false
+        navDirection = 0
+        nav.clear()
+        nav.add("today")
+    }
+
+    // A refresh-token 401 is terminal. The network layer clears the secure credentials and
+    // this observer closes the authenticated shell immediately, stops scheduled retries and
+    // detaches sync. A transient refresh failure never changes sessionState, so cached data
+    // remains usable offline and the next real reconnect can try again.
+    LaunchedEffect(authSessionState) {
+        if (authSessionState == AuthSessionState.SIGNED_OUT && authed) {
+            syncScheduler.stop()
+            getKoin().get<SyncEngine>().detach(clearAccountQueue = false)
+            closeAuthenticatedUi()
+        }
+    }
     val thoughtsVm: ThoughtsViewModel =
         viewModel(key = "thoughts:$sessionEpoch") {
             ThoughtsViewModel(
@@ -296,8 +325,13 @@ fun App() {
                     prefs.put(AppPrefs.DISPLAY_NAME, me.user.displayName)
                     prefs.put(AppPrefs.USER_ID, me.user.uid)
                     // Idempotent: covers the first launch after signing in, where nothing
-                    // was cached yet.
+                    // was cached yet. Arm capture before the non-critical media hydration.
                     attachSync(me.user.uid)
+                    // Restore the canonical avatar on a new device. A pending local choice is
+                    // never overwritten, and the public download client carries no bearer token.
+                    if (profilePhoto.retryPending() == ProfilePhotoUploadResult.NothingPending) {
+                        profilePhoto.refreshFromRemote(me.user.photoUrl)
+                    }
                 }
             }
         }
@@ -475,12 +509,7 @@ fun App() {
                                 onPublish = { text -> thoughtsVm.publish(text) { pop() } },
                                 onLike = thoughtsVm::like,
                                 onLoggedOut = {
-                                    sessionEpoch++
-                                    authed = false
-                                    sheetOpen = false
-                                    navDirection = 0
-                                    nav.clear()
-                                    nav.add("today")
+                                    closeAuthenticatedUi()
                                 },
                             )
                         }

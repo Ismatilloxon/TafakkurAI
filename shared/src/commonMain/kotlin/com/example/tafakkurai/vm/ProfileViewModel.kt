@@ -60,7 +60,11 @@ class ProfileViewModel(
                     ProfilePhotoUploadResult.Deferred -> {
                         errorKey = "profile.error.photo_upload"
                     }
-                    ProfilePhotoUploadResult.NothingPending -> Unit
+                    ProfilePhotoUploadResult.NothingPending -> {
+                        // A fresh device has no private BLOB yet. Hydrate it from the public
+                        // canonical URL with the repository's unauthenticated media client.
+                        profilePhoto.refreshFromRemote(me.user.photoUrl)
+                    }
                 }
             } catch (cancel: CancellationException) {
                 throw cancel

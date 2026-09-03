@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -58,10 +59,17 @@ func run() error {
 	}
 	defer pool.Close()
 
-	if err := platform.RunMigrations(ctx, pool, cfg.MigrationsDir); err != nil {
-		return err
+	if cfg.AutoMigrate {
+		migrationCtx, cancelMigrations := context.WithTimeout(ctx, 10*time.Minute)
+		migrationErr := platform.RunMigrations(migrationCtx, pool, cfg.MigrationsDir)
+		cancelMigrations()
+		if migrationErr != nil {
+			return migrationErr
+		}
+		slog.Info("migrations applied")
+	} else {
+		slog.Info("automatic migrations disabled")
 	}
-	slog.Info("migrations applied")
 
 	// ---- construct modules (dependencies flow through interfaces) ----
 	gamSvc := gamify.NewService(gamify.NewRepo(pool))
@@ -169,9 +177,15 @@ func run() error {
 	})
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.HTTPPort,
+		Addr:              net.JoinHostPort("0.0.0.0", cfg.HTTPPort),
 		Handler:           router,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// Streaming coach responses can legitimately outlive a fixed write
+		// deadline. Their outbound Anthropic client owns a bounded timeout.
+		WriteTimeout:   0,
+		IdleTimeout:    2 * time.Minute,
+		MaxHeaderBytes: 1 << 20,
 	}
 
 	serverErr := make(chan error, 1)
@@ -184,6 +198,7 @@ func run() error {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
 
 	select {
 	case err := <-serverErr:

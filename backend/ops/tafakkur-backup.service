@@ -1,0 +1,26 @@
+[Unit]
+Description=TafakkurAI PostgreSQL backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/tafakkur/backend/.env.production
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/tafakkur/backend
+EnvironmentFile=-/etc/tafakkur/backup.env
+ExecStart=/opt/tafakkur/backend/ops/backup-postgres.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/tafakkur/backend
+ReadWritePaths=/var/backups/tafakkur
+
+[Install]
+WantedBy=multi-user.target

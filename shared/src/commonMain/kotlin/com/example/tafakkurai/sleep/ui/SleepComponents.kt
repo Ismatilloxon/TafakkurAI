@@ -636,11 +636,11 @@ private fun localizedRecommendation(recommendation: SleepCoach.Recommendation, p
         ("short-sleep" to "body") ->
             arrayOf(sleepDuration(raw.getOrElse(0) { 0 }), sleepDuration(raw.getOrElse(1) { 0 }))
         ("short-sleep" to "evidence") ->
-            arrayOf(sleepDuration(raw.getOrElse(0) { 0 }), raw.getOrElse(1) { 0 })
+            arrayOf<Any>(sleepDuration(raw.getOrElse(0) { 0 }), raw.getOrElse(1) { 0 })
         ("sleep-debt" to "evidence"), ("social-jetlag" to "evidence") ->
             arrayOf(sleepDuration(raw.firstOrNull() ?: 0))
         ("fragmented" to "evidence") ->
-            arrayOf(raw.getOrElse(0) { 0 }, sleepDuration(raw.getOrElse(1) { 0 }))
+            arrayOf<Any>(raw.getOrElse(0) { 0 }, sleepDuration(raw.getOrElse(1) { 0 }))
         ("bedtime-drift" to "body") ->
             arrayOf(SleepTime.formatClock(raw.getOrElse(0) { 0 }), SleepTime.formatClock(raw.getOrElse(1) { 0 }))
         ("bedtime-drift" to "evidence") -> arrayOf(SleepTime.formatClock(raw.firstOrNull() ?: 0))

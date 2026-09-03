@@ -48,6 +48,10 @@ fun ProfileScreen(sessionKey: Int, onBack: () -> Unit) {
         if (bytes != null) vm.selectPhoto(bytes)
     }
     val openImagePicker = { if (!vm.photoUploading) pickImage() }
+    val profileSubtitle = listOfNotNull(
+        vm.user?.handle?.takeIf(String::isNotBlank),
+        vm.user?.city?.takeIf(String::isNotBlank),
+    ).joinToString(" · ")
     Column(Modifier.fillMaxSize()) {
         BackBar(tr("profile.title"), onBack)
         when {
@@ -87,8 +91,14 @@ fun ProfileScreen(sessionKey: Int, onBack: () -> Unit) {
                     vm.user?.displayName ?: "", color = c.fg, size = 22f, weight = FontWeight.Bold,
                     family = Fonts.display, modifier = Modifier.padding(top = 12.dp),
                 )
-                TfText("${vm.user?.handle ?: ""} · ${vm.user?.city ?: ""}", color = c.fg2, size = 13f,
-                    modifier = Modifier.padding(top = 2.dp))
+                if (profileSubtitle.isNotBlank()) {
+                    TfText(
+                        profileSubtitle,
+                        color = c.fg2,
+                        size = 13f,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
             }
 
             // Stats row

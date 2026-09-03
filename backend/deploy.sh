@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# One-shot Fly.io deploy for the TafakkurAI API. The manual version of these steps,
-# with the reasoning behind each service choice, is in DEPLOY.md.
+# LEGACY PAID ALTERNATIVE: this script does not implement the strict-$0 deployment.
+# Use ../render.yaml and DEPLOY.md for Render + Neon + Backblaze B2.
+# One-shot Fly.io deploy for the TafakkurAI API.
 #
 # Prerequisites you have to do yourself, in a browser:
 #   1. fly auth login                       (this script refuses to run without it)

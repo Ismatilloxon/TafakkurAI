@@ -45,11 +45,11 @@ class JournalViewModel(
     private val today: () -> String = ::deviceDateKey,
     private val localizedLabel: (String) -> String = { it },
 ) : ViewModel() {
-    private var body by mutableStateOf("")
+    private var draftBody by mutableStateOf("")
     private var prompt by mutableStateOf(promptForDate(today()))
-    private var mood by mutableStateOf(JournalMood.CALM)
+    private var selectedMood by mutableStateOf(JournalMood.CALM)
     private var editingId by mutableStateOf<String?>(null)
-    private var query by mutableStateOf("")
+    private var searchQuery by mutableStateOf("")
     private var pendingDeleteId by mutableStateOf<String?>(null)
     private var feedbackKey by mutableStateOf<String?>(null)
 
@@ -66,12 +66,12 @@ class JournalViewModel(
             repository.revision
             val all = repository.entries
             return JournalUiState(
-                body = body,
+                body = draftBody,
                 prompt = prompt,
-                mood = mood,
+                mood = selectedMood,
                 editingId = editingId,
-                query = query,
-                entries = filterReflections(all, query, localizedLabel),
+                query = searchQuery,
+                entries = filterReflections(all, searchQuery, localizedLabel),
                 summary = journalSummary(all, today()),
                 pendingDelete = pendingDeleteId?.let { id -> all.firstOrNull { it.id == id } },
                 feedbackKey = feedbackKey,
@@ -80,12 +80,12 @@ class JournalViewModel(
         }
 
     fun setBody(value: String) {
-        body = value.take(MAX_JOURNAL_BODY_CHARS)
+        draftBody = value.take(MAX_JOURNAL_BODY_CHARS)
         feedbackKey = null
     }
 
     fun setMood(value: JournalMood) {
-        mood = value
+        selectedMood = value
         feedbackKey = null
     }
 
@@ -95,7 +95,7 @@ class JournalViewModel(
     }
 
     fun setQuery(value: String) {
-        query = value.take(MAX_QUERY_CHARS)
+        searchQuery = value.take(MAX_QUERY_CHARS)
     }
 
     fun retryLoad(): Boolean {
@@ -105,10 +105,10 @@ class JournalViewModel(
     }
 
     fun save(): Boolean {
-        val draft = JournalDraft(prompt = prompt, mood = mood, body = body)
+        val draft = JournalDraft(prompt = prompt, mood = selectedMood, body = draftBody)
         val saved = editingId?.let { repository.update(it, draft) } ?: repository.create(draft)
         if (saved == null) {
-            feedbackKey = if (body.isBlank()) "journal.feedback.empty" else "journal.feedback.error"
+            feedbackKey = if (draftBody.isBlank()) "journal.feedback.empty" else "journal.feedback.error"
             return false
         }
         val updated = editingId != null
@@ -120,8 +120,8 @@ class JournalViewModel(
     fun edit(entry: JournalReflection) {
         editingId = entry.id
         prompt = entry.prompt
-        mood = entry.mood
-        body = entry.body
+        selectedMood = entry.mood
+        draftBody = entry.body
         feedbackKey = null
     }
 
@@ -148,8 +148,8 @@ class JournalViewModel(
     }
 
     private fun resetComposer(next: Boolean) {
-        body = ""
-        mood = JournalMood.CALM
+        draftBody = ""
+        selectedMood = JournalMood.CALM
         editingId = null
         if (next) prompt = nextPrompt(prompt)
     }

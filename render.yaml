@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+#
+# Strict-$0 starter deployment. Render prompts for every `sync: false` value
+# during initial Blueprint creation and stores it outside this repository.
+services:
+  - type: web
+    name: tafakkur-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: ENV
+        value: prod
+      - key: HTTP_PORT
+        value: "10000"
+      - key: MIGRATIONS_DIR
+        value: /app/migrations
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: APPLE_BUNDLE_ID
+        value: com.example.tafakkurai.TafakkurAI
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_USE_PATH_STYLE
+        value: "true"
+      - key: S3_PUBLIC_BASE
+        sync: false

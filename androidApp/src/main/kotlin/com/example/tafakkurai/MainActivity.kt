@@ -32,9 +32,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         if (GlobalContext.getOrNull() == null) {
-            // 10.0.2.2 = host localhost from the Android emulator.
+            // BuildConfig keeps emulator development local while release builds
+            // use the public HTTPS backend.
             initKoin(
-                ApiConfig(baseUrl = "http://10.0.2.2:8080/"),
+                ApiConfig(baseUrl = BuildConfig.TAFAKKUR_API_BASE_URL),
                 OkHttp.create(),
                 // AndroidKeyStore-backed, so the session outlives the process. The default
                 // InMemoryTokenProvider dropped it on every launch.

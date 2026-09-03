@@ -6,9 +6,11 @@ Built as a **modular monolith**: one binary, one Postgres database, clean domain
 
 ---
 
-## ⚠️ Build only on a clean host
+## Build safety
 
-This `backend/` folder is clean Go source. The **surrounding KMP repo's build files** (`shared/build.gradle.kts`, `androidApp/build.gradle.kts`, `iosApp/.../project.pbxproj`) shipped a supply-chain dropper and the dev host has an active root implant (see the incident report in `~/tafakkur-quarantine-*`). Do **not** run `go`, `make`, `docker`, or `./gradlew` on the compromised machine, and when you copy this folder to a clean, reimaged machine, bring **only** `backend/` — not the weaponized mobile build files.
+Follow the repository's `AGENTS.md` gate before every build: inspect Gradle and Xcode executable
+phases, reject unexplained hooks, and never download and execute build-time payloads. Keep all
+runtime secrets in environment variables or the deployment provider's secret store.
 
 ---
 
@@ -30,7 +32,7 @@ internal/
   tracker/    generic jsonb tracker entries
   gamify/     streak/level/XP engine
   media/      S3/MinIO image upload
-migrations/   golang-migrate compatible SQL (app also auto-applies on boot)
+migrations/   forward-only SQL applied by the app's checksum-tracked runner
 queries/      sqlc queries (typed-query path; repos currently use pgx directly)
 ```
 
@@ -42,7 +44,7 @@ queries/      sqlc queries (typed-query path; repos currently use pgx directly)
 
 - Go 1.23+
 - Docker + Docker Compose (for the one-command stack)
-- Optional: `golang-migrate` CLI, `sqlc`, `golangci-lint`
+- Optional: `sqlc`, `golangci-lint`
 
 ## Quick start (Docker)
 
@@ -64,6 +66,13 @@ make run                              # runs migrations then serves on :8080
 make test                             # unit + integration (integration needs Docker)
 ```
 
+## Public deployment
+
+The primary production-like path is one Oracle Cloud Always Free ARM64 VM running Caddy, this API,
+and PostgreSQL on private Docker networks. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the exact
+strict-$0 allocation, firewall, DNS/HTTPS, migration, backup, verification, and operations steps.
+[`DEPLOY.md`](DEPLOY.md) remains a separate Render/Neon hosted alternative.
+
 ---
 
 ## Configuration
@@ -72,15 +81,18 @@ All config comes from env vars (`internal/config`). Key ones:
 
 | Var | Default | Notes |
 |-----|---------|-------|
+| `PORT` / `HTTP_PORT` | `8080` | Uses host-standard `PORT` first; `HTTP_PORT` is a compatibility fallback |
 | `DATABASE_URL` | — (required) | Postgres DSN |
 | `JWT_SECRET` | — (required) | HS256 signing secret — set a long random value |
+| `PUBLIC_BASE_URL` | local API origin | Required HTTPS origin in production; used for OAuth callbacks |
 | `ACCESS_TOKEN_TTL` / `REFRESH_TOKEN_TTL` | `15m` / `720h` | token lifetimes |
 | `GOOGLE_CLIENT_ID` | — | Google ID-token `aud` (mobile OAuth client id) |
 | `APPLE_BUNDLE_ID` | — | Apple identity-token `aud` |
-| `TWILIO_ACCOUNT_SID` / `_AUTH_TOKEN` / `_FROM` | — | SMS for OTP; if blank, codes are logged (**dev only**) |
+| `TWILIO_ACCOUNT_SID` / `_AUTH_TOKEN` / `_FROM` | — | SMS for OTP; if any are blank, phone OTP is disabled and codes are not logged |
 | `ANTHROPIC_API_KEY` | — | Claude key, server-side only |
 | `CLAUDE_MODEL` | `claude-sonnet-5` | chat model; `CLAUDE_DEEP_MODEL` for a deeper option |
 | `S3_ENDPOINT`/`S3_BUCKET`/`S3_ACCESS_KEY`/`S3_SECRET_KEY` | — | MinIO/S3; if blank, photo upload → 503 |
+| `S3_PUBLIC_BASE` | endpoint + bucket | Publicly readable media base URL; required for device photo restoration |
 | `RATE_AUTH_PER_MIN` / `RATE_COACH_PER_MIN` / `RATE_POST_PER_MIN` | `20`/`15`/`30` | token-bucket limits |
 
 See `.env.example` for the full list.

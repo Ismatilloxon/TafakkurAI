@@ -1,0 +1,60 @@
+{
+	email {$ACME_EMAIL}
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+	admin off
+	servers {
+		protocols h1 h2
+	}
+	# Apply the same privacy filter to runtime/error logs. Reverse-proxy errors
+	# can otherwise include a full request URI even when access logs are clean.
+	log {
+		output stdout
+		format filter {
+			request>uri regexp "[?].*$" "?REDACTED"
+			request>remote_ip ip_mask 24 48
+			request>client_ip ip_mask 24 48
+			request>headers>User-Agent delete
+			request>headers>Referer delete
+			wrap json
+		}
+	}
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+	}
+
+	reverse_proxy api:8080 {
+		flush_interval -1
+		health_uri /ready
+		health_interval 30s
+		health_timeout 5s
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 15s
+			keepalive 2m
+		}
+	}
+
+	log {
+		output stdout
+		# Query values can contain OAuth codes, search terms, or other private
+		# input. Keep the request path for operations while redacting the entire
+		# query component before the structured access log is encoded.
+		format filter {
+			request>uri regexp "[?].*$" "?REDACTED"
+			request>remote_ip ip_mask 24 48
+			request>client_ip ip_mask 24 48
+			request>headers>User-Agent delete
+			request>headers>Referer delete
+			wrap json
+		}
+	}
+}

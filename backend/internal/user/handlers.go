@@ -8,6 +8,8 @@ import (
 	_ "image/png"
 	"io"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -214,16 +216,46 @@ func (h *Handler) uploadPhoto(w http.ResponseWriter, r *http.Request) {
 		platform.Error(w, http.StatusBadGateway, platform.CodeInternal, "upload failed")
 		return
 	}
-	if _, err := h.svc.SetPhoto(r.Context(), uid, url); err != nil {
+	previousURL, err := h.svc.SetPhoto(r.Context(), uid, url)
+	if err != nil {
 		// No profile references this object if the source-of-truth update failed.
 		// Best-effort cleanup prevents orphaned public media and storage growth.
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), photoCleanupTimeout)
 		_ = h.media.Delete(cleanupCtx, key)
 		cancel()
 		h.respondErr(w, err)
 		return
 	}
+	if previousURL != nil {
+		// A provider avatar or another bucket's URL is never a deletion target. Even below our
+		// public base, accept only this user's exact server-generated avatar key shape.
+		if previousKey, ok := h.media.ObjectKey(*previousURL); ok &&
+			previousKey != key && isOwnedAvatarKey(uid, previousKey) {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), photoCleanupTimeout)
+			_ = h.media.Delete(cleanupCtx, previousKey)
+			cancel()
+		}
+	}
 	platform.JSON(w, http.StatusOK, map[string]string{"url": url})
+}
+
+const photoCleanupTimeout = 5 * time.Second
+
+func isOwnedAvatarKey(userID uuid.UUID, key string) bool {
+	prefix := "avatars/" + userID.String() + "/"
+	if !strings.HasPrefix(key, prefix) {
+		return false
+	}
+	name := strings.TrimPrefix(key, prefix)
+	if name == "" || strings.Contains(name, "/") {
+		return false
+	}
+	extension := path.Ext(name)
+	if extension != ".jpg" && extension != ".png" {
+		return false
+	}
+	_, err := uuid.Parse(strings.TrimSuffix(name, extension))
+	return err == nil
 }
 
 func inspectProfilePhoto(file io.ReadSeeker, size int64) (profilePhotoFormat, error) {

@@ -5,6 +5,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,13 +16,17 @@ import (
 func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("parse dsn: %w", err)
+		// A parser error can include the input DSN. Do not let credentials reach
+		// the fatal startup log.
+		return nil, errors.New("invalid DATABASE_URL")
 	}
 	cfg.MaxConns = 10
 	cfg.MinConns = 1
 	cfg.MaxConnLifetime = time.Hour
-	cfg.MaxConnIdleTime = 30 * time.Minute
+	cfg.MaxConnLifetimeJitter = 10 * time.Minute
+	cfg.MaxConnIdleTime = 5 * time.Minute
 	cfg.HealthCheckPeriod = time.Minute
+	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -32,7 +37,7 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	defer cancel()
 	if err := pool.Ping(pingCtx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("ping: %w", err)
+		return nil, errors.New("database connectivity check failed")
 	}
 	return pool, nil
 }

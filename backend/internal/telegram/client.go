@@ -84,7 +84,9 @@ func (c *Client) call(ctx context.Context, method string, in, out any) error {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		// net/http errors often include the request URL. Telegram embeds the bot
+		// token in that URL, so never wrap or return the raw transport error.
+		return fmt.Errorf("telegram %s request failed", method)
 	}
 	defer resp.Body.Close()
 

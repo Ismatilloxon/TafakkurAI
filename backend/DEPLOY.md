@@ -1,184 +1,178 @@
-# Deploying the TafakkurAI API
+# Deploy TafakkurAI on a strict-$0 starter stack
 
-Target stack:
+The repository's primary public deployment target is:
 
-| Piece | Service | Notes |
+| Component | Service | Free allowance and important constraint |
 | --- | --- | --- |
-| Go API | Fly.io | Always-on machine, ~$2/month, no cold start |
-| Postgres | Neon | Free tier, 0.5 GB, does not expire |
-| Media storage | Cloudflare R2 | Free tier, 10 GB, S3-compatible |
+| Go API | Render Free web service | 0.1 CPU, 512 MB, and 750 free instance-hours per workspace each month. It spins down after 15 minutes without inbound traffic and can take about one minute to wake. |
+| PostgreSQL | Neon Free | Use the pooled TLS connection string. Free compute scales to zero after an idle period and the free plan currently includes 0.5 GB of project storage. |
+| Profile photos | Backblaze B2 | The first 10 GB of storage is free. TafakkurAI uses its S3-compatible API. Downloads/transactions also have free limits, so set account caps and monitor usage. |
 
-The API applies its own migrations on boot, so there is no separate migrate step.
+These are provider allowances, not an unlimited free SLA. Keep only one Render Free service in
+the workspace, stay inside every provider's quota, and configure usage caps/alerts where the
+provider offers them. Optional Twilio and Anthropic integrations are not part of the $0 stack.
 
----
+The official references used for this configuration are [Render Free services](https://render.com/docs/free),
+[Render Blueprints](https://render.com/docs/blueprint-spec), [Render port binding](https://render.com/docs/web-services#port-binding),
+[Neon pooled connections](https://neon.com/docs/connect/connection-pooling), [Neon scale to zero](https://neon.com/docs/introduction/scale-to-zero),
+[Backblaze S3 endpoints](https://www.backblaze.com/docs/cloud-storage-call-the-s3-compatible-api),
+[Backblaze bucket access](https://www.backblaze.com/docs/cloud-storage-create-and-manage-buckets), and
+[Backblaze pricing](https://www.backblaze.com/cloud-storage/pricing).
 
-## 1. Postgres on Neon
+The API applies the checked-in migrations on boot. Render's local filesystem is ephemeral, so all
+durable state belongs in Neon or B2; do not add SQLite, uploaded files, or generated data to the
+container filesystem.
 
-1. Create a project at <https://neon.tech>. Pick a region close to `fra`
-   (Frankfurt) so the API is not talking across an ocean.
-2. Copy the **pooled** connection string. It looks like:
+## 1. Create the Neon database
 
+1. Create a Neon Free project in a region close to Render's Frankfurt region.
+2. Open **Connect**, enable **Pooled connection**, and copy the complete connection string.
+3. Keep Neon's TLS parameters. A typical value has this shape:
+
+   ```text
+   postgres://USER:PASSWORD@ep-example-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
    ```
-   postgres://USER:PASSWORD@ep-xxx-pooler.eu-central-1.aws.neon.tech/tafakkur?sslmode=require
+
+4. Save it for Render as `DATABASE_URL`. Never paste it into a repository file, issue, log, or
+   screenshot.
+
+The Blueprint deliberately does not create a Render Postgres database: Render's Free Postgres
+instances expire after 30 days, whereas this deployment needs durable application data.
+
+## 2. Create the Backblaze B2 media bucket
+
+The current app downloads profile photos from the returned public object URL. Therefore the bucket
+must be publicly readable, or `S3_PUBLIC_BASE` must point at another publicly readable CDN in front
+of it. Upload, list, and delete operations still require the private application key.
+
+1. Create a globally unique **Public** B2 bucket. Use lowercase letters, numbers, and hyphens only;
+   do not put personal data in its name and avoid dots so HTTPS virtual-host URLs work.
+2. Create a B2 application key restricted to only this bucket with read/write access. The backend
+   needs `PutObject` and `DeleteObject`; it never needs an account-wide master key.
+3. Copy the bucket's S3 endpoint and region. For a bucket named `tafakkur-media-example` in
+   `us-east-005`, enter:
+
+   ```text
+   S3_ENDPOINT=https://s3.us-east-005.backblazeb2.com
+   S3_REGION=us-east-005
+   S3_BUCKET=tafakkur-media-example
+   S3_ACCESS_KEY=<application key ID>
+   S3_SECRET_KEY=<application key>
+   S3_USE_PATH_STYLE=true
+   S3_PUBLIC_BASE=https://tafakkur-media-example.s3.us-east-005.backblazeb2.com
    ```
 
-3. Keep `sslmode=require`. Neon refuses plaintext connections, and the local
-   `sslmode=disable` value will fail.
+`S3_PUBLIC_BASE` has no trailing slash. The backend appends an opaque
+`avatars/<user-id>/<random-id>.<extension>` object key. The mobile downloader does not send the API
+bearer token to B2.
 
-## 2. Media storage on Cloudflare R2
+Backblaze documents that activating a first public bucket can require a verified email plus either
+payment history or a small fee credited back to the account. Check that account-level condition
+before treating B2 as a no-card service. Usage beyond the published free allowances can incur cost;
+set caps before inviting real users.
 
-1. In the Cloudflare dashboard: **R2 → Create bucket**, name it `tafakkur-media`.
-2. **Settings → Public access → r2.dev subdomain → Enable.** Copy the public URL;
-   it becomes `S3_PUBLIC_BASE`.
-3. **Manage R2 API Tokens → Create API token**, permission *Object Read & Write*,
-   scoped to that bucket. Copy the access key id and secret — the secret is shown
-   once.
-4. The S3 endpoint is `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` (account id
-   is on the R2 overview page).
+## 3. Create the Render service from the Blueprint
 
-## 3. Fly.io
+The repository-root [`render.yaml`](../render.yaml) is the source of truth. It selects Docker,
+`plan: free`, `rootDir: backend`, `/healthz`, the copied `/app/migrations` directory, and a non-root
+runtime image. It contains variable names only—never secret values.
 
-Install the CLI and log in:
+1. Push the intended revision to a private or public Git provider repository that Render can read.
+2. In Render choose **New → Blueprint**, connect that repository, and select `render.yaml`.
+3. Fill every value marked `sync: false` with the Neon and B2 values above.
+4. Let Render generate `JWT_SECRET`; do not replace it with the local development secret.
+5. For the default service name, set both of these to the actual HTTPS URL shown by Render:
+
+   ```text
+   PUBLIC_BASE_URL=https://tafakkur-api.onrender.com
+   CORS_ALLOWED_ORIGINS=https://tafakkur-api.onrender.com
+   ```
+
+   If Render changes the hostname because the name is unavailable, use the assigned hostname. Both
+   values must be HTTPS origins with no path, query, fragment, credentials, or trailing content.
+
+6. Deploy. A successful log contains `migrations applied` followed by
+   `http server listening`. The service listens on Render's `PORT` (`10000` by default); the
+   Blueprint also sets the compatible `HTTP_PORT=10000` override.
+
+Render stores `sync: false` values only when the Blueprint is first created. If a later revision
+adds another secret variable, add it manually in **Service → Environment** before redeploying.
+
+## 4. Optional authentication and AI providers
+
+The API boots without these integrations, but the corresponding server feature stays disabled:
+
+| Feature | Environment variables | Cost note |
+| --- | --- | --- |
+| Telegram login | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_BASE`, `TELEGRAM_WEBHOOK_SECRET` | Set the webhook base to the Render HTTPS origin. Use a random webhook secret. |
+| Phone OTP | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | Without all three, phone OTP fails closed; codes are not logged. Twilio is outside the strict-$0 stack. |
+| Google browser login | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Register `<PUBLIC_BASE_URL>/v1/auth/google/callback` exactly. |
+| Native Google ID tokens | `GOOGLE_CLIENT_ID` | Comma-separated iOS/Android client IDs. |
+| Apple sign-in | `APPLE_BUNDLE_ID` | The Blueprint sets the current bundle ID. |
+| Cloud AI coach | `ANTHROPIC_API_KEY` and optional model variables | Omit this to keep the deployment strictly $0. On-device actions do not require it. |
+
+For Telegram production delivery:
+
+```text
+TELEGRAM_WEBHOOK_BASE=https://tafakkur-api.onrender.com
+TELEGRAM_WEBHOOK_SECRET=<independently generated random secret>
+```
+
+Do not run a local long-poller with the same Telegram bot token while production webhooks are
+enabled; use a separate development bot.
+
+## 5. Verify the deployment
+
+The first request after idle can take about one minute while Render wakes the container. Wait for
+the response instead of repeatedly submitting a login or mutation.
 
 ```bash
-brew install flyctl
-fly auth signup   # or: fly auth login
+curl --fail --show-error --max-time 90 https://tafakkur-api.onrender.com/healthz
+curl --fail --show-error --max-time 90 https://tafakkur-api.onrender.com/readyz
 ```
 
-Create the app without deploying yet (`fly.toml` already exists, so answer "no"
-when it offers to overwrite it, and decline the Postgres/Redis offers — we use
-Neon):
+Expected bodies:
 
-```bash
-cd backend
-fly launch --no-deploy --copy-config --name tafakkur-api --region fra
+```json
+{"status":"ok"}
+{"status":"ready"}
 ```
 
-If the name `tafakkur-api` is taken, pick another and update `app` in
-`fly.toml` to match.
+`/healthz` proves the process is serving. `/readyz` also checks PostgreSQL. Then inspect Render logs
+for migration or media-configuration errors without printing environment values.
 
-### Secrets
+The mobile client performs one bounded `GET /healthz` warm-up before interactive repository calls.
+Only that safe GET is retried; the subsequent POST, PUT, PATCH, or DELETE is issued once. Offline
+ActivityEvents remain queued with stable IDs and the sync scheduler can replay them idempotently.
 
-Everything sensitive goes through `fly secrets`, never into `fly.toml`.
+## 6. Point iOS and Android at HTTPS
 
-Generate a fresh JWT secret — do **not** reuse the one in `backend/.env`, that
-file is checked into the working tree and is only meant for local dev:
+The base URL must end with `/` because Ktor resolves relative paths against it.
 
-```bash
-openssl rand -hex 32
+- iOS reads `TafakkurAPIBaseURL` from `iosApp/iosApp/Info.plist` (a
+  `TAFAKKUR_API_BASE_URL` launch environment value can override it for development).
+- Android passes `ApiConfig(baseUrl = ...)` from
+  `androidApp/src/main/kotlin/com/example/tafakkurai/MainActivity.kt`.
+
+Use the assigned Render URL:
+
+```text
+https://tafakkur-api.onrender.com/
 ```
 
-Then:
+Rebuild and reinstall the mobile app after changing it. Do not ship the local `.local`,
+`localhost`, or Android-emulator address in a device build.
 
-```bash
-fly secrets set \
-  DATABASE_URL="postgres://USER:PASSWORD@ep-xxx-pooler.eu-central-1.aws.neon.tech/tafakkur?sslmode=require" \
-  JWT_SECRET="<output of openssl rand -hex 32>" \
-  S3_ENDPOINT="https://<ACCOUNT_ID>.r2.cloudflarestorage.com" \
-  S3_ACCESS_KEY="<r2 access key id>" \
-  S3_SECRET_KEY="<r2 secret access key>" \
-  S3_PUBLIC_BASE="https://pub-xxxx.r2.dev/tafakkur-media"
-```
+## Operations and rollback
 
-Optional, add when you actually need the feature:
+- Use the Render **Logs** and **Events** pages for startup/runtime failures and rollbacks.
+- Use Neon monitoring for storage/compute usage and database connection errors.
+- Use Backblaze caps/alerts for storage, downloads, and API transactions.
+- Back up user data and practice restore before calling this production-ready. A free deployment is
+  not a backup policy.
+- Rotate storage/provider credentials independently. Rotating `JWT_SECRET` invalidates every
+  refresh/access token and signs out all users, so do it deliberately.
+- If a migration fails, fix it forward and redeploy. Do not edit an already-applied migration.
 
-```bash
-fly secrets set ANTHROPIC_API_KEY="sk-ant-..."          # AI coach
-fly secrets set GOOGLE_CLIENT_ID="....apps.googleusercontent.com"
-fly secrets set APPLE_BUNDLE_ID="com.example.tafakkurai.TafakkurAI"
-fly secrets set TWILIO_ACCOUNT_SID="AC..." TWILIO_AUTH_TOKEN="..." TWILIO_FROM="+1..."
-```
-
-Without Twilio the API falls back to the dev OTP sender, which prints login
-codes into the logs. Fine for testing, not for real users.
-
-### Deploy
-
-```bash
-fly deploy
-```
-
-Verify:
-
-```bash
-curl https://tafakkur-api.fly.dev/healthz     # -> {"status":"ok"}
-fly logs                                       # look for "migrations applied"
-```
-
-## 4. Point the apps at it
-
-- iOS: `shared/src/iosMain/kotlin/com/example/tafakkurai/MainViewController.kt`
-- Android: wherever `initKoin` is called with an `ApiConfig`
-
-Set `baseUrl = "https://tafakkur-api.fly.dev/"` — trailing slash required, see
-`ApiConfig.kt`.
-
-Once both platforms point at HTTPS you can drop the dev-only local-network
-escape hatches: `NSAppTransportSecurity` in `iosApp/iosApp/Info.plist`, and
-`usesCleartextTraffic` in the Android manifest if it is set there.
-
-## Operations
-
-```bash
-fly logs                  # stream logs
-fly status                # machine state
-fly secrets list          # names only, values are write-only
-fly ssh console           # shell into the machine
-fly scale memory 1024     # if it starts OOMing
-```
-
-### Cost
-
-One `shared-cpu-1x` / 512 MB machine running 24/7 is roughly $2/month. To cut
-that to near zero at the price of a cold start on the first request, set in
-`fly.toml`:
-
-```toml
-auto_stop_machines = "suspend"
-min_machines_running = 0
-```
-
-Suspend resumes far faster than a cold boot, but the first request after idle
-still waits.
-
-### Rolling the JWT secret
-
-Changing `JWT_SECRET` invalidates every issued access and refresh token — all
-users are logged out and must sign in again. Do it deliberately, not as part of
-a routine deploy.
-
-## Telegram sign-in
-
-The app authenticates through a Telegram bot: no phone number, no SMS cost, and
-one round trip. Flow:
-
-1. `POST /v1/auth/telegram/start` → `{code, deep_link}` (code lives `TELEGRAM_LOGIN_TTL`, default 10m).
-2. The app opens `https://t.me/<bot>?start=<code>`; the user presses **Start**.
-3. The bot binds that Telegram account to the code.
-4. `POST /v1/auth/telegram/poll {code}` → `{"status":"pending"}` until approved,
-   then `{"status":"authorized","session":{access_token, refresh_token, ...}}`.
-
-The code is single-use and dies on expiry, so a leaked link is worthless minutes
-later. After sign-in the app only ever uses the JWT pair — Telegram is not
-contacted again.
-
-### Creating the bot
-
-1. In Telegram open **@BotFather** → `/newbot` → pick a name and a `..._bot` username.
-2. Copy the token it prints into `TELEGRAM_BOT_TOKEN` (`.env` locally, `fly secrets set` in prod).
-3. Optional polish in BotFather: `/setdescription`, `/setuserpic`.
-
-The server resolves the bot's `@username` itself via `getMe`, so no second variable.
-
-### Local dev vs production
-
-- **Local** — leave `TELEGRAM_WEBHOOK_BASE` empty. The server deletes any webhook
-  and long-polls `getUpdates`; the consumed offset is persisted, so a restart
-  never replays an old `/start`.
-- **Production** — set `TELEGRAM_WEBHOOK_BASE=https://<app>.fly.dev` and a random
-  `TELEGRAM_WEBHOOK_SECRET`. The server registers the webhook at boot and rejects
-  any POST to `/telegram/webhook` without the matching secret-token header.
-
-Only one bot may be attached to one delivery mode at a time — running a local
-long-poller against the same token as production steals its updates. Use a
-separate dev bot.
+`fly.toml` and `deploy.sh` remain only as a legacy paid Fly.io alternative. They are not used by
+the strict-$0 Blueprint and should not be run for this deployment.

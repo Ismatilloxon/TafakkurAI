@@ -1,3 +1,5 @@
+# LEGACY PAID ALTERNATIVE: this is not the strict-$0 deployment.
+# The supported free starter path is ../render.yaml plus DEPLOY.md.
 # Fly.io deployment for the TafakkurAI API.
 #
 # Secrets (DATABASE_URL, JWT_SECRET, S3 keys, ...) are NOT in this file — set

@@ -5,6 +5,7 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
+import uz.tafakkur.network.BackendReadiness
 
 /** Identifies a call for logging: the HTTP verb and the relative path. */
 data class CallInfo(val method: String, val path: String)
@@ -44,6 +45,7 @@ class NetworkExecutor(
     private val snackbar: SnackbarController,
     private val mapper: NetworkErrorMapper,
     private val logger: NetworkLogger,
+    private val readiness: BackendReadiness,
 ) {
 
     suspend fun <T> call(
@@ -58,6 +60,9 @@ class NetworkExecutor(
 
         if (useLoader) loading.begin()
         try {
+            // Only the idempotent health probe inside this gate is retried. The operation
+            // below is invoked once, so a cold backend never causes a POST/PUT/DELETE replay.
+            readiness.awaitReady()
             val result = block()
             if (successKey != null && !silent) snackbar.success(textKey = successKey)
             return result

@@ -1,5 +1,9 @@
 package uz.tafakkur.network
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /**
  * Small key/value store backed by the platform's secure storage: the Keychain on iOS, and on
  * Android an AES-GCM key held in the hardware-backed AndroidKeyStore.
@@ -42,6 +46,11 @@ class PersistentTokenProvider(private val store: KeyValueStore) : TokenProvider 
     private var access: String? = store.get(KEY_ACCESS)
     private var refresh: String? = store.get(KEY_REFRESH)
 
+    private val mutableSessionState = MutableStateFlow(
+        if (access != null) AuthSessionState.AUTHENTICATED else AuthSessionState.SIGNED_OUT,
+    )
+    override val sessionState: StateFlow<AuthSessionState> = mutableSessionState.asStateFlow()
+
     override fun accessToken(): String? = access
 
     override fun refreshToken(): String? = refresh
@@ -55,13 +64,20 @@ class PersistentTokenProvider(private val store: KeyValueStore) : TokenProvider 
             this.refresh = refresh
             store.put(KEY_REFRESH, refresh)
         }
+        mutableSessionState.value = if (access != null) {
+            AuthSessionState.AUTHENTICATED
+        } else {
+            AuthSessionState.SIGNED_OUT
+        }
     }
 
     override fun clear() {
+        if (access == null && refresh == null) return
         access = null
         refresh = null
         store.put(KEY_ACCESS, null)
         store.put(KEY_REFRESH, null)
+        mutableSessionState.value = AuthSessionState.SIGNED_OUT
     }
 
     private companion object {

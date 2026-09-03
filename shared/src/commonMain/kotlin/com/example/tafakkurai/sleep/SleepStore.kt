@@ -65,8 +65,8 @@ class SleepStore(
         private set
 
     /** True while a health-store import is running; drives the sync chip in the header. */
-    var importing by mutableStateOf(false)
-        private set
+    private var _importing by mutableStateOf(false)
+    val importing: Boolean get() = _importing
 
     var lastImportAt by mutableStateOf(0L)
         private set
@@ -303,7 +303,7 @@ class SleepStore(
     }
 
     fun setImporting(value: Boolean) {
-        importing = value
+        _importing = value
     }
 
     /**

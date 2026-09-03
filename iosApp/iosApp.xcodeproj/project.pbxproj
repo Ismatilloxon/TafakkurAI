@@ -206,6 +206,7 @@
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
+				TAFAKKUR_API_BASE_URL = "https://80-225-79-136.sslip.io/";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
@@ -363,6 +364,7 @@
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
+				TAFAKKUR_API_BASE_URL = "http://MacBook-Pro-user.local:8080/";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;

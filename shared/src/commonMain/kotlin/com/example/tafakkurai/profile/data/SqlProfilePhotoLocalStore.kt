@@ -76,6 +76,49 @@ class SqlProfilePhotoLocalStore(
         }.getOrDefault(false)
     }
 
+    /**
+     * Whether [remoteUrl] represents a canonical image that is not already cached. A pending
+     * local choice always wins: server state can be stale while that offline-first write waits.
+     */
+    internal suspend fun needsRemote(remoteUrl: String): Boolean = gate.withLock {
+        val current = loadState()
+        when {
+            current != null && current.uploadedRevision < current.revision -> false
+            current?.remoteUrl == remoteUrl -> false
+            else -> true
+        }
+    }
+
+    /**
+     * Commits downloaded canonical bytes as an already-uploaded revision. The pending check is
+     * repeated under the same lock as the write, so a selection made during the download cannot
+     * be overwritten by the older server image.
+     */
+    internal suspend fun cacheRemote(remoteUrl: String, value: ByteArray): Boolean {
+        if (value.isEmpty() || value.size > MAX_PROFILE_PHOTO_BYTES) return false
+        val copy = value.copyOf()
+        return gate.withLock {
+            runCatching {
+                val current = loadState()
+                if (current != null && current.uploadedRevision < current.revision) {
+                    return@runCatching false
+                }
+                if (current?.remoteUrl == remoteUrl) return@runCatching true
+
+                val revision = (current?.revision ?: 0L) + 1L
+                db.profilePhotoQueries.savePhoto(
+                    copy,
+                    now(),
+                    revision,
+                    revision,
+                    remoteUrl,
+                )
+                mutableBytes.value = copy
+                true
+            }.getOrDefault(false)
+        }
+    }
+
     suspend fun clear() = gate.withLock {
         // Account teardown is a privacy boundary. Do not report an empty in-memory avatar while
         // silently leaving another account's BLOB on disk to reappear after a process restart.

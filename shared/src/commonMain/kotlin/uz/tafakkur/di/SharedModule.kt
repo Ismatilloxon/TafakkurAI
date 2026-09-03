@@ -5,6 +5,7 @@ import com.example.tafakkurai.ai.data.OnDeviceActionRouter
 import com.example.tafakkurai.ai.data.VocabularySourceStore
 import com.example.tafakkurai.ai.domain.LocalActionParser
 import com.example.tafakkurai.profile.data.OfflineFirstProfilePhotoRepository
+import com.example.tafakkurai.profile.data.PublicProfilePhotoDownloader
 import com.example.tafakkurai.profile.data.SqlProfilePhotoLocalStore
 import com.example.tafakkurai.profile.domain.ProfilePhotoRepository
 import app.cash.sqldelight.db.SqlDriver
@@ -179,7 +180,9 @@ import uz.tafakkur.domain.usecase.SetEmailUseCase
 import uz.tafakkur.domain.usecase.StartPhoneAttachUseCase
 import uz.tafakkur.domain.usecase.VerifyPhoneAttachUseCase
 import uz.tafakkur.network.ApiConfig
+import uz.tafakkur.network.BackendReadiness
 import uz.tafakkur.network.InMemoryTokenProvider
+import uz.tafakkur.network.KtorBackendReadiness
 import uz.tafakkur.network.TokenProvider
 import uz.tafakkur.network.createHttpClient
 
@@ -188,6 +191,7 @@ fun networkModule(config: ApiConfig, engine: HttpClientEngine, tokens: TokenProv
     single<TokenProvider> { tokens }
     single<HttpClientEngine> { engine }
     single { createHttpClient(get(), get(), get()) }
+    single<BackendReadiness> { KtorBackendReadiness(get()) }
 }
 
 /**
@@ -203,7 +207,7 @@ val feedbackModule = module {
     single<SnackbarController> { DefaultSnackbarController(CoroutineScope(SupervisorJob() + Dispatchers.Default)) }
     single<NetworkErrorMapper> { DefaultNetworkErrorMapper() }
     single<NetworkLogger> { PrintlnNetworkLogger() }
-    single { NetworkExecutor(get(), get(), get(), get()) }
+    single { NetworkExecutor(get(), get(), get(), get(), get()) }
 }
 
 val dataModule = module {
@@ -249,10 +253,12 @@ val localModule = module {
     single<SqlDriver> { get<DatabaseDriverFactory>().createDriver() }
     single { createTafakkurDb(get<SqlDriver>()) }
     single { SqlProfilePhotoLocalStore(get()) }
+    single { PublicProfilePhotoDownloader(get()) }
     single<ProfilePhotoRepository> {
         OfflineFirstProfilePhotoRepository(
             local = get(),
             remote = get(),
+            downloader = get(),
             connectivity = get(),
             appScope = get(),
         )

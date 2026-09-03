@@ -37,6 +37,10 @@ type Service interface {
 	// Upload stores body at key and returns a publicly resolvable URL.
 	Upload(ctx context.Context, upload Upload) (string, error)
 	Delete(ctx context.Context, key string) error
+
+	// ObjectKey returns the storage key only when rawURL is an unmodified URL below this
+	// service's configured public base. Callers must still enforce resource ownership.
+	ObjectKey(rawURL string) (string, bool)
 }
 
 type s3Service struct {
@@ -53,6 +57,8 @@ func (disabledService) Upload(context.Context, Upload) (string, error) {
 }
 
 func (disabledService) Delete(context.Context, string) error { return ErrNotConfigured }
+
+func (disabledService) ObjectKey(string) (string, bool) { return "", false }
 
 // NewService returns an S3-backed service, or a disabled one that errors on
 // upload when storage env vars are absent (so the API still boots in dev).
@@ -162,6 +168,38 @@ func (s *s3Service) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("s3 delete: %w", err)
 	}
 	return nil
+}
+
+func (s *s3Service) ObjectKey(rawURL string) (string, bool) {
+	return objectKeyFromPublicURL(s.publicBase, rawURL)
+}
+
+func objectKeyFromPublicURL(publicBase, rawURL string) (string, bool) {
+	base, err := url.Parse(publicBase)
+	if err != nil {
+		return "", false
+	}
+	candidate, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+	if candidate.Scheme == "" || candidate.Host == "" || candidate.User != nil ||
+		candidate.RawQuery != "" || candidate.Fragment != "" || candidate.RawPath != "" ||
+		!strings.EqualFold(candidate.Scheme, base.Scheme) ||
+		!strings.EqualFold(candidate.Host, base.Host) {
+		return "", false
+	}
+
+	basePath := strings.TrimRight(base.Path, "/")
+	prefix := basePath + "/"
+	if !strings.HasPrefix(candidate.Path, prefix) {
+		return "", false
+	}
+	key := strings.TrimPrefix(candidate.Path, prefix)
+	if !safeObjectKey(key) {
+		return "", false
+	}
+	return key, true
 }
 
 func validateUpload(upload Upload) error {

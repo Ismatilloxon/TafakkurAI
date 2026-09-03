@@ -6,6 +6,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -57,18 +58,26 @@ func NewRouter(d Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(RequestID, Recoverer, Logger, SecurityHeaders, CORS(d.Config))
 
-	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	health := func(w http.ResponseWriter, r *http.Request) {
 		platform.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+	}
+	ready := func(w http.ResponseWriter, r *http.Request) {
 		if d.Ready != nil {
-			if err := d.Ready(r.Context()); err != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			defer cancel()
+			if err := d.Ready(ctx); err != nil {
 				platform.Error(w, http.StatusServiceUnavailable, platform.CodeUnavailable, "not ready")
 				return
 			}
 		}
 		platform.JSON(w, http.StatusOK, map[string]string{"status": "ready"})
-	})
+	}
+	// Exact paths used by container/orchestrator probes. Keep the z-suffixed
+	// aliases for existing clients and the previous Fly configuration.
+	r.Get("/health", health)
+	r.Get("/healthz", health)
+	r.Get("/ready", ready)
+	r.Get("/readyz", ready)
 
 	if d.TelegramWebhook != nil {
 		r.Post("/telegram/webhook", d.TelegramWebhook)
@@ -94,7 +103,9 @@ func NewRouter(d Deps) http.Handler {
 			d.Learn.Register(pr)
 			d.Tracker.Register(pr)
 			d.Gratitude.Register(pr)
-			d.Habits.Register(pr)
+			if d.Habits != nil {
+				d.Habits.Register(pr)
+			}
 			d.Quran.Register(pr)
 			if d.Sleep != nil {
 				d.Sleep.Register(pr)

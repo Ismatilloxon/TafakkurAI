@@ -24,10 +24,12 @@ import uz.tafakkur.domain.repository.UserRepository
 class OfflineFirstProfilePhotoRepository(
     private val local: SqlProfilePhotoLocalStore,
     private val remote: UserRepository,
+    private val downloader: PublicProfilePhotoDownloader,
     private val connectivity: Connectivity,
     appScope: CoroutineScope,
 ) : ProfilePhotoRepository {
     private val uploadGate = Mutex()
+    private val downloadGate = Mutex()
 
     override val bytes: StateFlow<ByteArray?> = local.bytes
 
@@ -63,6 +65,19 @@ class OfflineFirstProfilePhotoRepository(
             // A newer selection won the race or persistence could not acknowledge the response.
             // Never clear that work; the already-queued/current lifecycle trigger retries it.
             ProfilePhotoUploadResult.Deferred
+        }
+    }
+
+    override suspend fun refreshFromRemote(remoteUrl: String?) {
+        val canonicalUrl = remoteUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        downloadGate.withLock {
+            if (!connectivity.isOnline() || !local.needsRemote(canonicalUrl)) return@withLock
+
+            // Downloading is intentionally outside the upload gate: the local store repeats its
+            // pending-revision check atomically when committing, so a photo selected while this
+            // is in flight always wins without making user actions wait for a public CDN.
+            val downloaded = downloader.download(canonicalUrl) ?: return@withLock
+            local.cacheRemote(canonicalUrl, downloaded)
         }
     }
 

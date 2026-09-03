@@ -50,7 +50,7 @@ func (b *Bot) Init(ctx context.Context) error {
 		return err
 	}
 	b.username = me.Username
-	slog.Info("telegram bot connected", "username", me.Username, "id", me.ID)
+	slog.Info("telegram bot connected", "username", me.Username)
 	return nil
 }
 
@@ -86,7 +86,7 @@ func (b *Bot) Dispatch(ctx context.Context, u Update) {
 		}
 		code, err := b.onContact(ctx, *msg.From, *c)
 		if err != nil {
-			slog.Warn("telegram: issue auth code", "error", err, "telegram_id", msg.From.ID)
+			slog.Warn("telegram: issue auth code", "error", err)
 			b.reply(ctx, msg.Chat.ID, replyFailure)
 			return
 		}
@@ -96,7 +96,7 @@ func (b *Bot) Dispatch(ctx context.Context, u Update) {
 
 	if strings.HasPrefix(strings.TrimSpace(msg.Text), "/start") {
 		if err := b.client.SendContactRequest(ctx, msg.Chat.ID, askContact, btnContact); err != nil {
-			slog.Warn("telegram: send contact request", "error", err, "chat_id", msg.Chat.ID)
+			slog.Warn("telegram: send contact request", "error", err)
 		}
 		return
 	}
@@ -106,7 +106,7 @@ func (b *Bot) Dispatch(ctx context.Context, u Update) {
 
 func (b *Bot) reply(ctx context.Context, chatID int64, text string) {
 	if err := b.client.SendMessage(ctx, chatID, text); err != nil {
-		slog.Warn("telegram sendMessage failed", "error", err, "chat_id", chatID)
+		slog.Warn("telegram sendMessage failed", "error", err)
 	}
 }
 
@@ -114,7 +114,7 @@ func (b *Bot) reply(ctx context.Context, chatID int64, text string) {
 // SetWebhook — without that check the endpoint is an open update injector.
 func (b *Bot) WebhookHandler(secret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if secret != "" && r.Header.Get("X-Telegram-Bot-Api-Secret-Token") != secret {
+		if secret == "" || r.Header.Get("X-Telegram-Bot-Api-Secret-Token") != secret {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}

@@ -20,7 +20,7 @@ type Service interface {
 	ReplaceInterests(ctx context.Context, userID uuid.UUID, in ReplaceInterestsInput) (Account, error)
 	UpdatePrayerSettings(ctx context.Context, userID uuid.UUID, in PrayerSettingsInput) (Account, error)
 	CompleteOnboarding(ctx context.Context, userID uuid.UUID) (Account, error)
-	SetPhoto(ctx context.Context, userID uuid.UUID, url string) (Account, error)
+	SetPhoto(ctx context.Context, userID uuid.UUID, url string) (*string, error)
 	// SetPhone / SetEmail complete the contact detail the sign-in provider could
 	// not supply: Google gives an email but never a number, phone OTP the reverse.
 	SetPhone(ctx context.Context, userID uuid.UUID, phone string) (Account, error)
@@ -111,11 +111,8 @@ func (s *service) CompleteOnboarding(ctx context.Context, userID uuid.UUID) (Acc
 	return s.repo.GetAccount(ctx, userID)
 }
 
-func (s *service) SetPhoto(ctx context.Context, userID uuid.UUID, url string) (Account, error) {
-	if err := s.repo.SetPhoto(ctx, userID, url); err != nil {
-		return Account{}, err
-	}
-	return s.repo.GetAccount(ctx, userID)
+func (s *service) SetPhoto(ctx context.Context, userID uuid.UUID, url string) (*string, error) {
+	return s.repo.SetPhoto(ctx, userID, url)
 }
 
 func (s *service) SetPhone(ctx context.Context, userID uuid.UUID, phone string) (Account, error) {
